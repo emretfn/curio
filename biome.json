@@ -1,0 +1,60 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": ["**", "!docs/research", "!**/fixtures"]
+  },
+  "formatter": {
+    "indentStyle": "space"
+  },
+  "linter": {
+    "rules": {
+      "preset": "recommended",
+      "style": {
+        "noCommonJs": "error",
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "patterns": [
+              {
+                "group": [
+                  "better-sqlite3",
+                  "better-sqlite3/**",
+                  "node:sqlite",
+                  "bun:sqlite",
+                  "sqlite",
+                  "sqlite3",
+                  "libsql",
+                  "@libsql/**",
+                  "sql.js",
+                  "@sqlite.org/**"
+                ],
+                "message": "Only packages/core may open the database. Use the functions exported by @x-bookmarks/core, and add one there if the one you need is missing."
+              },
+              {
+                "group": ["@x-bookmarks/core/**", "**/core/src/**"],
+                "message": "Import from \"@x-bookmarks/core\" only. Its internals hold the database connection and are private."
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["packages/core/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": "off"
+          }
+        }
+      }
+    }
+  ]
+}

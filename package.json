@@ -1,0 +1,22 @@
+{
+  "name": "x-bookmarks",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.11.2",
+  "engines": {
+    "node": ">=24.12"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit && pnpm --recursive run typecheck",
+    "lint": "biome check --error-on-warnings",
+    "lint:fix": "biome check --write --error-on-warnings",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2",
+    "vitest": "5.0.3"
+  }
+}
