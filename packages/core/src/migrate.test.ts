@@ -88,7 +88,8 @@ test("a gap or reordering in the migration list is refused", () => {
 
 test("every migration file is registered under its own number", () => {
   const files = readdirSync(new URL("./migrations/", import.meta.url))
-    .filter((file) => /^\d{4}-/.test(file))
+    // A migration's own test sits beside it, as NNNN-name.test.ts.
+    .filter((file) => /^\d{4}-/.test(file) && !file.endsWith(".test.ts"))
     .sort();
 
   expect(

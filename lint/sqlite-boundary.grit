@@ -1,0 +1,12 @@
+language js
+
+// The import restriction in biome.json reads import statements. These three
+// names are the ways to load a module without one, in any file type including
+// .cjs and .cts, so any mention of them outside packages/core is an error.
+or {
+  `require`,
+  `createRequire`,
+  `getBuiltinModule`
+} as $name where {
+  register_diagnostic(span=$name, message="Only packages/core may load a module by name at run time, because that reaches the SQLite driver past the import restriction. Use an import statement, and reach the database through @x-bookmarks/core.", severity="error")
+}

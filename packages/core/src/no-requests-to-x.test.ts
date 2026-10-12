@@ -1,0 +1,324 @@
+/**
+ * The mechanical half of "Requests to X" in CODING_STANDARDS.md: nothing in
+ * this repo may request anything from a host X owns.
+ *
+ * It reads every source file in the repo, not only core's, and holds three
+ * lists. A file that is not on the right list fails the test, so each of
+ * these is a decision somebody wrote down and somebody reviewed:
+ *
+ * 1. A file that names an X-owned host is listed, with what the name is for.
+ *    Test files are let off: they hold request URLs as sample data.
+ * 2. A file that makes requests, or has a browser load things, is listed,
+ *    with where its requests go.
+ * 3. A file that does both, a test included, is listed with why none of its
+ *    requests can reach X.
+ *
+ * What this cannot see is said at the bottom of the standard: a URL that
+ * arrives as data, a request made inside a dependency, a redirect.
+ */
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
+import { expect, test } from "vitest";
+import { X_OWNED_DOMAINS } from "./x-hosts.ts";
+
+const repoRoot = join(import.meta.dirname, "../../..");
+
+/** Not source: dependencies, build output, the user's data, prose, lockfiles, and generated files. */
+const SKIPPED_DIRECTORIES = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  ".next",
+  ".next-e2e",
+  "data",
+  "coverage",
+  // Research notes cite X's own pages. They are prose, and nothing runs them.
+  "docs",
+  // Redacted responses: data that names X's media hosts, with invented paths.
+  "fixtures",
+]);
+const SKIPPED_FILES = new Set(["pnpm-lock.yaml", "next-env.d.ts"]);
+const SOURCE_FILE =
+  /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|json|html|css|grit|yaml|yml)$/;
+const TEST_FILE = /\.test\.(ts|tsx)$/;
+
+function sourceFiles(directory: string = repoRoot): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      return SKIPPED_DIRECTORIES.has(entry.name) ? [] : sourceFiles(path);
+    }
+    return SOURCE_FILE.test(entry.name) && !SKIPPED_FILES.has(entry.name)
+      ? [relative(repoRoot, path)]
+      : [];
+  });
+}
+
+/** One of X's domains or a subdomain of one, standing as a host and not inside a longer name. */
+const X_HOST = new RegExp(
+  `(?<![A-Za-z0-9-])(?:[A-Za-z0-9-]+\\.)*(?:${X_OWNED_DOMAINS.map((domain) => domain.replace(".", "\\.")).join("|")})(?![A-Za-z0-9-])`,
+  "i",
+);
+export const namesXHost = (source: string) => X_HOST.test(source);
+
+/** Node's own ways out: its network modules, and a shell, which has curl. */
+const NODE_MODULES = "https?|http2|net|tls|dgram|dns|child_process";
+/** HTTP clients and browser drivers in common use. */
+const PACKAGES =
+  "undici|axios|got|ky|node-fetch|superagent|needle|request|ws|playwright|playwright-core|puppeteer|puppeteer-core|selenium-webdriver|jsdom|open";
+
+/**
+ * Anything that makes a request or has a browser make one: the request
+ * functions, an import of one of the modules above or a dependency on one,
+ * and the elements and style rules that load from a URL.
+ */
+const REQUEST = new RegExp(
+  [
+    "\\bfetch\\b|XMLHttpRequest|WebSocket|EventSource|sendBeacon",
+    `(?:from|import|require)\\s*\\(?\\s*["'](?:(?:node:)?(?:${NODE_MODULES})|(?:${PACKAGES})(?:/[^"']*)?)["']`,
+    `"(?:${PACKAGES})"\\s*:`,
+    "next/image|<(?:img|video|audio|source|iframe|embed|object|picture)\\b",
+    "\\burl\\(\\s*[\"']?(?:https?:)?//",
+  ].join("|"),
+);
+export const makesRequests = (source: string) => REQUEST.test(source);
+
+/** Files that name an X-owned host, and what the name is there for. Test files need no entry. */
+const NAMES_X_HOSTS: Record<string, string> = {
+  "packages/core/src/x-hosts.ts":
+    "The list of X's hosts itself, and the guard that refuses them.",
+  "packages/core/src/post.ts":
+    "Doc comments on the bookmark record: a stored link's `t.co` form is data.",
+  "packages/core/src/parsers/redaction/redact.ts":
+    "Which hosts a redacted fixture may keep by name. It builds strings and requests nothing.",
+  "packages/core/src/parsers/redaction/leaks.ts":
+    "Which strings a fixture may share with a real capture. It compares strings.",
+  "packages/core/src/parsers/redaction/sample.ts":
+    "An invented response for the redactor's tests.",
+  "packages/extension/manifest.json":
+    "Where Chrome injects the two content scripts. A match pattern, not a permission to request: the service worker holds no host permission for X.",
+  "packages/extension/src/operations.ts":
+    "Recognises the page's own requests by their URL. It reads a URL and requests nothing.",
+  "packages/extension/src/background.ts":
+    "Accepts messages from x.com tabs only. Its one request goes to the local app.",
+  "packages/extension/src/page-hook.ts":
+    "A comment saying which pages the hook runs on.",
+  "packages/extension/src/relay.ts":
+    "A comment saying which pages the relay runs on.",
+  "packages/e2e/src/capture.e2e.ts":
+    "The end-to-end test. Its browser resolves every hostname to a server in the test.",
+  "packages/e2e/src/fake-x.ts":
+    "The fake X the test browser is sent to instead of the real one.",
+  "packages/e2e/src/shapes-page.js":
+    "The page the fake X serves, standing in for X's web client.",
+};
+
+/** Files that make requests or have a browser load something, and where to. Test files included. */
+const MAKES_REQUESTS: Record<string, string> = {
+  "packages/extension/src/hook.ts":
+    "Wraps the page's own fetch and XMLHttpRequest and calls the browser's original with the page's arguments. It starts no request (CAP-1).",
+  "packages/extension/src/queue.ts":
+    "Delivers captures with a fetch it is handed, to APP_ORIGIN only (CAP-5).",
+  "packages/extension/src/background.ts":
+    "Hands the queue the service worker's fetch. The worker's only host permission is the local app.",
+  "packages/extension/src/testing.ts":
+    "A fake fetch for the extension's tests: a function, with no network behind it.",
+  "packages/extension/src/hook.test.ts":
+    "Runs the wrappers against a fake window whose fetch and XMLHttpRequest are stubs.",
+  "packages/extension/src/queue.test.ts":
+    "Runs delivery against the fake fetch of testing.ts.",
+  "packages/extension/src/background.test.ts":
+    "Reads the service worker's source to check what it may reach.",
+  "packages/e2e/package.json":
+    "Depends on Playwright, which drives the test browser.",
+  "packages/e2e/src/capture.e2e.ts":
+    "Starts the app and a Chromium whose resolver sends every hostname to this process, and stops before any test if that rule is not in force.",
+  "packages/e2e/src/fake-x.ts": "A server. It answers requests and makes none.",
+  "packages/e2e/src/shapes-page.js":
+    "Runs inside the test browser, where x.com is the fake.",
+  "packages/core/src/no-requests-to-x.test.ts":
+    "This check: the names of request functions, as patterns.",
+};
+
+/**
+ * Files that both name an X-owned host and make requests, and why no request
+ * of theirs reaches X. This is the list to read first in a review: a new
+ * entry is a claim that needs checking by hand.
+ */
+const REQUESTS_BESIDE_X_HOSTS: Record<string, string> = {
+  "packages/extension/src/background.ts":
+    "The host is compared with a message's sender. The fetch is given APP_ORIGIN by queue.ts.",
+  "packages/extension/src/hook.test.ts":
+    "Request URLs are arguments to stub functions.",
+  "packages/extension/src/queue.test.ts":
+    "Request URLs are fields of sample captures; the fetch is a fake.",
+  "packages/extension/src/background.test.ts":
+    "It reads source text. It requests nothing.",
+  "packages/e2e/src/capture.e2e.ts":
+    "x.com is requested by a browser that resolves it to the fake, checked before any test runs.",
+  "packages/e2e/src/fake-x.ts": "It is the server those requests reach.",
+  "packages/e2e/src/shapes-page.js":
+    "Its requests are relative to the page, which the fake serves.",
+  "packages/core/src/no-requests-to-x.test.ts":
+    "This check. It reads files and requests nothing.",
+};
+
+const files = sourceFiles().map((path) => ({
+  path,
+  source: readFileSync(join(repoRoot, path), "utf8"),
+}));
+
+test("the check reads the whole repo, every package included", () => {
+  const paths = files.map(({ path }) => path);
+
+  expect(paths.length).toBeGreaterThan(80);
+  for (const expected of [
+    "package.json",
+    "packages/core/src/parsing.ts",
+    "packages/extension/src/queue.ts",
+    "packages/extension/manifest.json",
+    "packages/web/src/server/ingest.ts",
+    "packages/web/src/app/page.tsx",
+    "packages/web/reparse.ts",
+    "packages/e2e/src/fake-x.ts",
+    "lint/sqlite-boundary.grit",
+  ]) {
+    expect(paths).toContain(expected);
+  }
+});
+
+test("only listed files name a host X owns", () => {
+  const unlisted = files
+    .filter(({ path, source }) => namesXHost(source) && !TEST_FILE.test(path))
+    .map(({ path }) => path)
+    .filter((path) => !Object.hasOwn(NAMES_X_HOSTS, path));
+
+  expect(
+    unlisted,
+    'These files name a host X owns. Nothing here may request one: read "Requests to X" in CODING_STANDARDS.md. If the name is data or a comment, add the file to NAMES_X_HOSTS with what it is for.',
+  ).toEqual([]);
+});
+
+test("only listed files make requests", () => {
+  const unlisted = files
+    .filter(({ source }) => makesRequests(source))
+    .map(({ path }) => path)
+    .filter((path) => !Object.hasOwn(MAKES_REQUESTS, path));
+
+  expect(
+    unlisted,
+    "These files make a request, or have a browser load something. Add each to MAKES_REQUESTS with where its requests go, and pass any URL it did not write itself through assertNotXOwnedUrl first.",
+  ).toEqual([]);
+});
+
+test("a file that names a host X owns and also makes requests is listed with why they never meet", () => {
+  const unlisted = files
+    .filter(({ source }) => namesXHost(source) && makesRequests(source))
+    .map(({ path }) => path)
+    .filter((path) => !Object.hasOwn(REQUESTS_BESIDE_X_HOSTS, path));
+
+  expect(
+    unlisted,
+    "These files name a host X owns and make requests. That is how a request to X gets written. Take one of the two out, or add the file to REQUESTS_BESIDE_X_HOSTS with why no request of its can reach X.",
+  ).toEqual([]);
+});
+
+test("no list holds an entry for a file that no longer needs it", () => {
+  const sourceOf = new Map(files.map(({ path, source }) => [path, source]));
+  const stale = (
+    list: Record<string, string>,
+    needed: (source: string) => boolean,
+  ) => Object.keys(list).filter((path) => !needed(sourceOf.get(path) ?? ""));
+
+  expect(stale(NAMES_X_HOSTS, namesXHost)).toEqual([]);
+  expect(stale(MAKES_REQUESTS, makesRequests)).toEqual([]);
+  expect(
+    stale(
+      REQUESTS_BESIDE_X_HOSTS,
+      (source) => namesXHost(source) && makesRequests(source),
+    ),
+  ).toEqual([]);
+});
+
+test("core, which holds every bookmark, makes no request of any kind", () => {
+  const requesting = files
+    .filter(({ path }) => path.startsWith("packages/core/"))
+    .filter(({ source }) => makesRequests(source))
+    .map(({ path }) => path);
+
+  expect(requesting).toEqual(["packages/core/src/no-requests-to-x.test.ts"]);
+});
+
+test.each([
+  ["a post fetched by id", 'await fetch("https://api.x.com/2/tweets/" + id)'],
+  [
+    "a short link resolved",
+    'const where = await fetch("https://t.co/" + token, { method: "HEAD" })',
+  ],
+  ["an image downloaded", 'https.get("https://pbs.twimg.com/media/" + key)'],
+  ["a video downloaded", 'const host = "video.twimg.com";'],
+  ["an embed asked for", 'new URL("https://publish.twitter.com/oembed")'],
+  [
+    "the syndication endpoint",
+    'const SYNDICATION = "cdn.syndication.twimg.com/tweet-result";',
+  ],
+  ["the old domain", 'page.goto("https://twitter.com/i/bookmarks")'],
+  ["a host in capitals", 'const HOST = "X.COM";'],
+  ["a bare host in a comparison", 'if (url.hostname === "x.com") retry(url);'],
+])("the check sees %s as naming a host X owns", (_, source) => {
+  expect(namesXHost(source)).toBe(true);
+});
+
+test.each([
+  "https://notx.com/",
+  "https://x.computer.example/",
+  "https://linux.com/",
+  "const total = result.count + index.compare(matrix.columns);",
+  "import config from './next.config.ts';",
+  "https://site1.example/a",
+  "https://internet.co/",
+])("%s names none", (source) => {
+  expect(namesXHost(source)).toBe(false);
+});
+
+test.each([
+  ["fetch", "const response = await fetch(url);"],
+  ["fetch handed on", "deliver({ fetch, storage });"],
+  ["XMLHttpRequest", "const xhr = new XMLHttpRequest();"],
+  ["Node's http client", 'import { request } from "node:https";'],
+  ["Node's http client, old spelling", "import http from 'http';"],
+  ["a socket", 'import { connect } from "node:net";'],
+  [
+    "a shell, which has curl",
+    'import { execFileSync } from "node:child_process";',
+  ],
+  ["an HTTP client library", 'import axios from "axios";'],
+  ["a browser driven by code", 'import { chromium } from "playwright";'],
+  ["a client loaded on demand", 'const { request } = await import("undici");'],
+  ["a browser driver as a dependency", '"playwright": "^1.64.0"'],
+  [
+    "an image the user's browser would load",
+    "<img src={media.imageUrl} alt={media.altText} />",
+  ],
+  ["a video", "<video controls src={media.videoUrl}></video>"],
+  ["Next's image component", 'import Image from "next/image";'],
+  ["an embedded page", "<iframe src={post.url} />"],
+  [
+    "a stylesheet loading from a URL",
+    'background: url("https://example.com/a.png");',
+  ],
+])("the check sees %s as making a request", (_, source) => {
+  expect(makesRequests(source)).toBe(true);
+});
+
+test.each([
+  "const fetched = prefetch.length;",
+  'import { readFileSync } from "node:fs";',
+  '<a href={link.url} rel="noreferrer">{link.displayUrl}</a>',
+  "const image = bookmark.media[0]?.imageUrl;",
+  'import Link from "next/link";',
+  'const kind = "request";',
+  "window.open(link.url);",
+])("%s makes none", (source) => {
+  expect(makesRequests(source)).toBe(false);
+});

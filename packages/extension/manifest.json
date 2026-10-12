@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "x-bookmarks capture",
+  "version": "0.1.0",
+  "description": "Keeps a copy of the bookmark responses X's web client receives while you browse, and hands them to the x-bookmarks app on this computer. Sends nothing to X.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8RSWm5CVlNK4/AB0uuQZc/nmK/I8ykb+BIduDi7t5KZMYVuxrNlWnCBbdZu12mO0sfAri2S9Novout3mm9+KmrKCakbnd/nMeK4ZcWgUGaMFHxx14ZPrelPVrbCuqv3TkX6t6oIGXLADSP7TqsuuN/MvhnT3NIfaMpPu3mG0akpbuaYnKminAYwRpxKNYQxy4q0p+BXgm28r8nO75R/sKpbFtlUb5CWN+JpUf2zdu+2vC+0/XClNS1PeoLGpZxyEbxe7xsfQBEBm2V4z+FB0DUh3awzAeIRPUmhn4wFwi3+M37ysqOcfCvjk+y5FJA/EB6cHpm/UPelHo5NQeLH/EQIDAQAB",
+  "minimum_chrome_version": "130",
+  "permissions": ["storage", "unlimitedStorage", "alarms"],
+  "host_permissions": ["http://127.0.0.1:47130/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://x.com/*"],
+      "js": ["page-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://x.com/*"],
+      "js": ["relay.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "x-bookmarks capture",
+    "default_popup": "popup.html"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "data": {
+    "viewer": {
+      "user_results": {
+        "result": {
+          "__typename": "User",
+          "bookmark_collections_slice": {
+            "items": [],
+            "slice_info": {}
+          }
+        }
+      }
+    }
+  }
+}

@@ -8,10 +8,17 @@
     "node": ">=24.12"
   },
   "scripts": {
+    "app": "pnpm --filter @x-bookmarks/web run app",
+    "pair": "pnpm --silent --filter @x-bookmarks/web run pair",
+    "extension:build": "pnpm --filter @x-bookmarks/extension run build",
+    "reparse": "pnpm --silent --filter @x-bookmarks/web run reparse",
+    "fixtures:build": "pnpm --silent --filter @x-bookmarks/core run fixtures:build",
+    "fixtures:check": "pnpm --silent --filter @x-bookmarks/core run fixtures:check",
     "typecheck": "tsc --noEmit && pnpm --recursive run typecheck",
     "lint": "biome check --error-on-warnings",
     "lint:fix": "biome check --write --error-on-warnings",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "pnpm --filter @x-bookmarks/e2e run e2e"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>x-bookmarks capture</title>
+    <style>
+      body { font: 13px system-ui, sans-serif; width: 300px; margin: 12px; }
+      h1 { font-size: 14px; margin: 0 0 8px; }
+      dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0 0 12px; }
+      dd { margin: 0; text-align: right; }
+      form { display: flex; gap: 6px; margin-bottom: 8px; }
+      input { flex: 1; min-width: 0; }
+      [role="alert"] { margin: 0 0 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>x-bookmarks capture</h1>
+    <dl>
+      <dt>Paired with the app</dt>
+      <dd id="paired">…</dd>
+      <dt>Captured</dt>
+      <dd id="captured">…</dd>
+      <dt>Delivered to the app</dt>
+      <dd id="delivered">…</dd>
+      <dt>Waiting for the app</dt>
+      <dd id="pending">…</dd>
+      <dt>Refused by the app</dt>
+      <dd id="rejected">…</dd>
+      <dt>Last capture</dt>
+      <dd id="last-captured">…</dd>
+      <dt>Last delivery</dt>
+      <dd id="last-delivered">…</dd>
+    </dl>
+    <p id="last-error" role="alert" hidden></p>
+    <form id="pairing">
+      <input id="token" type="password" placeholder="Pairing token" autocomplete="off" aria-label="Pairing token" />
+      <button type="submit">Pair</button>
+    </form>
+    <button id="deliver" type="button">Send waiting captures now</button>
+    <script src="popup.js"></script>
+  </body>
+</html>
