@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { contentSecurityPolicy } from "./src/lib/x-media-policy.ts";
 
 const nextConfig: NextConfig = {
   // The extension's protocol module is TypeScript source with no build of its
@@ -19,6 +20,13 @@ const nextConfig: NextConfig = {
           { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "no-referrer" },
+          // What a page may load, and from where: this app, and X's two
+          // media hosts for media the owner asks to see. Anything else is
+          // refused by the browser before it asks.
+          { key: "Content-Security-Policy", value: contentSecurityPolicy() },
+          // A post's links lead all over the web, X included. The browser
+          // is not to look any of them up until one is clicked.
+          { key: "X-DNS-Prefetch-Control", value: "off" },
         ],
       },
     ];

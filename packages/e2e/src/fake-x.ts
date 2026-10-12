@@ -31,13 +31,43 @@ export const NOT_ALLOWLISTED_MARKER = "MUST-NOT-BE-CAPTURED";
 export const OTHER_HOST_MARKER = "fake page for another host";
 
 /**
+ * The fake media CDN: the two hosts the library may have the browser load a
+ * post's media from. Like every hostname here they lead to this server.
+ */
+export const MEDIA_HOSTS = {
+  image: "pbs.twimg.com",
+  video: "video.twimg.com",
+} as const;
+/** Asking a media host for this path sets `MEDIA_COOKIE` for that host. */
+export const MEDIA_COOKIE_PATH = "/__cookie";
+export const MEDIA_COOKIE = "media_session=fake";
+/**
+ * What the fake video host answers with: a clip that plays, nothing at all,
+ * or the start of a clip that never continues, as on a connection that hangs.
+ */
+export type FakeVideo = "plays" | "missing" | "stalls";
+/**
+ * The clip: twelve seconds of a test pattern and a tone, 320 by 180, made by
+ * ffmpeg from its own `testsrc2` and `sine` sources. It is WebM because the
+ * test browser plays no H.264; the library asks for it by an address that
+ * ends in `.mp4`, and the browser goes by what it is sent.
+ */
+const CLIP = readFileSync(new URL("clip.webm", import.meta.url));
+/** A site whose page embeds `EMBEDDED_CONTROL_PATH` from the image host, plainly. */
+export const EMBEDDER_HOST = "embedder.example";
+export const EMBEDDED_CONTROL_PATH = "/__control.svg";
+
+/**
  * Hosts Chromium itself calls, with or without any extension: its account
- * check and its component updater. Requests to them are the browser's own and
- * are kept apart; a request to any other host is a page's or the extension's.
+ * check, its component updater, and its autofill service, which it asks about
+ * the shape of any form a page shows, the library's search field included.
+ * Requests to them are the browser's own and are kept apart; a request to any
+ * other host is a page's or the extension's.
  */
 const CHROMIUM_OWN_HOSTS: readonly string[] = [
   "accounts.google.com",
   "update.googleapis.com",
+  "content-autofill.googleapis.com",
 ];
 
 export interface SeenRequest {
@@ -124,8 +154,8 @@ type AnyResponse = ServerResponse | Http2ServerResponse;
 /** What the HTTP/1.1 and HTTP/2 response objects have in common. */
 interface Reply {
   writeHead(status: number, headers?: Record<string, string | string[]>): Reply;
-  write(chunk: string): unknown;
-  end(chunk?: string): unknown;
+  write(chunk: string | Uint8Array): unknown;
+  end(chunk?: string | Uint8Array): unknown;
 }
 
 export async function startFakeX(directory: string, shapesScript: string) {
@@ -151,6 +181,8 @@ export async function startFakeX(directory: string, shapesScript: string) {
   const pages = fakeXPages(shapesScript);
   const seen: SeenRequest[] = [];
   const browserOwn: SeenRequest[] = [];
+  /** How the media hosts answer. A test sets it before the press it is about. */
+  const media: { video: FakeVideo } = { video: "plays" };
 
   async function handle(request: AnyRequest, raw: AnyResponse) {
     const response = raw as unknown as Reply;
@@ -190,6 +222,70 @@ export async function startFakeX(directory: string, shapesScript: string) {
       date: "Mon, 12 Oct 2026 08:00:00 GMT",
       "cache-control": "no-store",
     };
+    if (host === MEDIA_HOSTS.image || host === MEDIA_HOSTS.video) {
+      if (url.pathname === MEDIA_COOKIE_PATH) {
+        // A cookie for the media host that the browser would send with any
+        // request to it, from any site, unless the request says not to.
+        response.writeHead(200, {
+          ...fixed,
+          "content-type": "text/html",
+          "set-cookie": [`${MEDIA_COOKIE}; Path=/; Secure; SameSite=None`],
+        });
+        response.end("<!doctype html><p>media cookie set</p>");
+        return;
+      }
+      if (host === MEDIA_HOSTS.video && media.video !== "missing") {
+        // The clip, whole or the part a `Range` asks for, as a CDN serves a
+        // file a player may seek in.
+        const [, first, last] =
+          /^bytes=([0-9]+)-([0-9]*)$/.exec(
+            String(request.headers.range ?? ""),
+          ) ?? [];
+        const from = Math.min(Number(first ?? 0), CLIP.length - 1);
+        const to =
+          last === undefined || last === ""
+            ? CLIP.length - 1
+            : Math.min(Number(last), CLIP.length - 1);
+        response.writeHead(first === undefined ? 200 : 206, {
+          ...fixed,
+          "content-type": "video/webm",
+          "accept-ranges": "bytes",
+          "content-length": String(to - from + 1),
+          ...(first === undefined
+            ? {}
+            : { "content-range": `bytes ${from}-${to}/${CLIP.length}` }),
+          "access-control-allow-origin": "*",
+        });
+        if (media.video === "stalls") {
+          // Too little to show a frame, and then nothing more.
+          response.write(CLIP.subarray(from, Math.min(to + 1, from + 512)));
+          return;
+        }
+        response.end(CLIP.subarray(from, to + 1));
+        return;
+      }
+      // A picture any page may read. That the real CDN answers a request
+      // without credentials this way is an assumption no test here can check,
+      // since no test may ask it.
+      response.writeHead(host === MEDIA_HOSTS.image ? 200 : 404, {
+        ...fixed,
+        "content-type": "image/svg+xml",
+        "access-control-allow-origin": "*",
+      });
+      response.end(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="3"><rect width="4" height="3" fill="#888"/></svg>',
+      );
+      return;
+    }
+    if (host === EMBEDDER_HOST) {
+      // The control: a page that embeds a picture from the media host the
+      // ordinary way, to show what the browser sends when nothing stops it.
+      response.writeHead(200, { ...fixed, "content-type": "text/html" });
+      response.end(
+        `<!doctype html><img src="https://${MEDIA_HOSTS.image}${EMBEDDED_CONTROL_PATH}" alt=""><p>embedder</p>`,
+      );
+      return;
+    }
     if (host !== "x.com") {
       response.writeHead(200, { ...fixed, "content-type": "text/html" });
       response.end(`<!doctype html><p>${OTHER_HOST_MARKER}</p>`);
@@ -301,6 +397,7 @@ export async function startFakeX(directory: string, shapesScript: string) {
     seen,
     /** Chromium's own background requests. */
     browserOwn,
+    media,
     close: () => {
       front.close();
       otherSite.close();

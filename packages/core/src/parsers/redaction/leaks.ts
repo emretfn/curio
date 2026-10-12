@@ -61,6 +61,8 @@ export const SHARED_STRINGS: ReadonlySet<string> = new Set([
   "Default",
   "C2paClient",
   "user",
+  // What X answers to a bookmark mutation.
+  "Done",
   // Card layouts, binding types and binding names.
   "summary",
   "summary_large_image",

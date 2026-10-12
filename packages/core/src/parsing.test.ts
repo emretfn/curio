@@ -94,6 +94,9 @@ function derivedRows(of: Store): unknown {
       .prepare("SELECT * FROM capture_parses ORDER BY capture_id")
       .all(),
     issues: db.prepare("SELECT * FROM parse_issues ORDER BY id").all(),
+    mutations: db
+      .prepare("SELECT * FROM bookmark_mutations ORDER BY post_id")
+      .all(),
   };
 }
 
@@ -139,9 +142,9 @@ test("parsing a capture turns its posts into bookmarks, first seen when the capt
 
 test("a capture of an operation nothing parses yet is recorded as that, which is not a failure", () => {
   const { store: on, captureId } = store(
-    '{"data":{"tweet_bookmark_put":"Done"}}',
+    '{"data":{}}',
     monday,
-    "CreateBookmark",
+    "BookmarkFolderTimeline",
   );
 
   expect(parseCapture(on, captureId)).toMatchObject({
@@ -415,7 +418,7 @@ test("a full re-parse run a second time changes nothing at all", () => {
   store(textPosts, monday, "Bookmarks", on);
   store(media, thursday, "Bookmarks", on);
   store('{"errors":[]}', thursday, "Bookmarks", on);
-  store("{}", thursday, "CreateBookmark", on);
+  store("{}", thursday, "BookmarkFolderTimeline", on);
   store(
     withSecondPost((results) => {
       results.result = { __typename: "TweetPreview" };

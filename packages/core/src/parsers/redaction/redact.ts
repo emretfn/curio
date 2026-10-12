@@ -63,6 +63,9 @@ const ENUM_FIELDS: ReadonlySet<string> = new Set([
   "scribe_key",
   // The name of a card binding, such as `title` or `thumbnail_image_original`.
   "key",
+  // What X answers to a bookmark mutation: `Done`.
+  "tweet_bookmark_put",
+  "tweet_bookmark_delete",
 ]);
 const IDENTIFIER = /^[A-Za-z][A-Za-z0-9_/+.-]{0,47}$/;
 

@@ -6,12 +6,14 @@
   "scripts": {
     "app": "next build && next start --hostname 127.0.0.1 --port 47130",
     "dev": "next dev --hostname 127.0.0.1 --port 47130",
+    "backup": "node backup.ts",
     "pair": "node pair.ts",
     "reparse": "node reparse.ts",
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
+    "@tanstack/react-virtual": "^3.14.15",
     "@x-bookmarks/core": "workspace:*",
     "@x-bookmarks/extension": "workspace:*",
     "class-variance-authority": "^0.7.1",

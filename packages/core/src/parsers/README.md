@@ -1,6 +1,6 @@
 # Parsers
 
-A parser turns the `payload` of one raw capture into what it holds: bookmarks, and an account of everything it did not understand. It is a pure function, `CaptureParser` in `parsed.ts`: text in, a `ParsedCapture` out, with no database access. `parseCapture` in `../parsing.ts` is the one caller. It looks the parser up by the capture's `(source, operation)`, upserts the bookmarks with `upsertBookmark`, and records the outcome.
+A parser turns the `payload` of one raw capture into what it holds: bookmarks, or for a mutation the post that was bookmarked or un-bookmarked, and an account of everything it did not understand. It is a pure function, `CaptureParser` in `parsed.ts`: text in, a `ParsedCapture` out, with no database access. Its second argument is the capture's stored request body, which a mutation needs because its response does not name the post. `parseCapture` in `../parsing.ts` is the one caller. It looks the parser up by the capture's `(source, operation)`, upserts the bookmarks with `upsertBookmark`, records a mutation with `recordMutation`, and records the outcome.
 
 ## What exists
 
@@ -9,7 +9,7 @@ A parser turns the `payload` of one raw capture into what it holds: bookmarks, a
 | `x-web-client` | `Bookmarks` | `x-web-client/Bookmarks.ts`, with `post.ts` for the post itself | 76 real pages, 1,450 entries, captured 2026-10-12 |
 | `x-web-client` | `BookmarkFoldersSlice` | `x-web-client/BookmarkFoldersSlice.ts` | one real response, from an account with no folders. It understands the empty list only |
 | `x-web-client` | `BookmarkFolderTimeline` | none yet | no real sample |
-| `x-web-client` | `CreateBookmark`, `DeleteBookmark` | none yet | one real sample of each exists in the database since 2026-10-12; what a removed bookmark should do to the library is undecided |
+| `x-web-client` | `CreateBookmark`, `DeleteBookmark` | `x-web-client/CreateBookmark.ts` and `DeleteBookmark.ts`, both made by `mutation.ts` | one real sample of each, captured 2026-10-12, of a post bookmarked and un-bookmarked three seconds later. They understand X's confirmation, `Done`, and nothing else |
 | `x-api-v2` | any | none yet | no real sample |
 
 A capture whose operation has no parser is recorded as `no-parser`, which is not a failure, and is parsed by the next re-parse after a parser is added to the table in `index.ts`.
@@ -48,11 +48,12 @@ Observed on the 1,450 entries of 2026-10-12. Where this differs from `docs/resea
 - An X Article is `article.article_results.result`: title, excerpt and cover image. Its body is not in the response.
 - A quoted post is `quoted_status_result.result`, a full post. When that post quotes in turn, its target is in full under `nested_quoted_tweet_results`, and only its id is kept.
 - `views.count` is a string, and absent on old posts.
+- A mutation answers `{"data":{"tweet_bookmark_put":"Done"}}`, or `tweet_bookmark_delete` for a removal. The post is in the request body, as `variables.tweet_id`, beside a `queryId`. What X answers when a mutation fails has not been seen, so anything but `Done` is a failed capture and marks nothing.
 - `sortIndex` is a string of 19 digits. `sortIndex >> 20`, read as Unix milliseconds, behaves as the time the bookmark was made: see `estimateBookmarkedAt` in `../bookmarks.ts`.
 
 ## Fixtures
 
-Fixtures are in `fixtures/<source>/<operation>/`, one response per file, named for the date it was captured and what it shows (`2026-10-12-long-posts.json`). The formatter skips this directory. Each `Bookmarks` fixture is a real page cut down to the entries that show one family of shapes.
+Fixtures are in `fixtures/<source>/<operation>/`, one response per file, named for the date it was captured and what it shows (`2026-10-12-long-posts.json`). The formatter skips this directory. Each `Bookmarks` fixture is a real page cut down to the entries that show one family of shapes. A mutation's fixture is two files, the response and beside it the request body as `<name>.request.json`, redacted together so that they are one capture.
 
 A response from the bookmarks timeline is personal data, and fixtures are committed, so a fixture is never saved by hand. It is built by a script and checked by another:
 

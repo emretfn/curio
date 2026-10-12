@@ -69,6 +69,11 @@ test("a new bookmark is first seen when its capture was received, not when it wa
     viewCount: null,
     sortIndex: null,
     estimatedBookmarkedAt: null,
+    observedBookmarkedAt: null,
+    // With neither an estimate nor an observed time, first-seen stands in.
+    bookmarkedAt: monday,
+    removedOnXAt: null,
+    withheldOnXAt: null,
     firstSeenAt: monday,
     firstSeenCaptureId: captureId,
     lastSeenAt: monday,

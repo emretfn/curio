@@ -163,10 +163,9 @@ test("a capture of an operation with no parser yet is stored and recorded as tha
 
   await send({
     ...capture,
-    operation: "DeleteBookmark",
-    requestUrl: "https://x.com/i/api/graphql/abc/DeleteBookmark",
-    requestBody: '{"variables":{"tweet_id":"1861899614026727424"}}',
-    payload: '{"data":{"tweet_bookmark_delete":"Done"}}',
+    operation: "BookmarkFolderTimeline",
+    requestUrl: "https://x.com/i/api/graphql/abc/BookmarkFolderTimeline",
+    payload: '{"data":{}}',
   });
 
   expect(summariseRawCaptures(store).count).toBe(1);

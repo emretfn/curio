@@ -33,7 +33,7 @@ export default function PairPage() {
           </ol>
         </CardContent>
         <CardFooter>
-          <Link href="/" className="underline">
+          <Link href="/status" className="underline underline-offset-3">
             Back to status
           </Link>
         </CardFooter>

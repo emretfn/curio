@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import Database from "better-sqlite3";
 import { estimateBookmarkedAt, upsertBookmark } from "./bookmarks.ts";
+import { recordMutation } from "./mutations.ts";
 import { PARSER_VERSION, parserFor } from "./parsers/index.ts";
 import type { CaptureParser, ParsedCapture } from "./parsers/parsed.ts";
 import {
@@ -108,9 +109,9 @@ function describeThrown(error: unknown): string {
     : `${error.name} in ${frame[1]} (${frame[2]})`;
 }
 
-function runParser(parse: CaptureParser, payload: string): ParsedCapture {
+function runParser(parse: CaptureParser, capture: RawCapture): ParsedCapture {
   try {
-    return parse(payload);
+    return parse(capture.payload, capture.requestBody);
   } catch (error) {
     // A shape mismatch is returned, not thrown, so this is a bug in the
     // parser. It is recorded like any other failure instead of being lost.
@@ -127,8 +128,9 @@ function runParser(parse: CaptureParser, payload: string): ParsedCapture {
 
 /**
  * Parses one stored raw capture with the parser for its source and operation,
- * upserts the bookmarks it holds, and records what happened: the outcome and
- * every entry or part that was not understood. Nothing is thrown for a
+ * upserts the bookmarks it holds, notes the bookmark it says was made or
+ * removed, and records what happened: the outcome and every entry or part
+ * that was not understood. Nothing is thrown for a
  * response the parser does not understand; that is a recorded outcome.
  *
  * Safe to run again on the same capture, with the same or a newer parser. The
@@ -163,8 +165,7 @@ function recordParse(
     throw new Error(`Raw capture ${captureId} does not exist.`);
   }
   const parser = parserOf(capture);
-  const parsed =
-    parser === undefined ? undefined : runParser(parser, capture.payload);
+  const parsed = parser === undefined ? undefined : runParser(parser, capture);
 
   const db = connectionOf(store);
   const record = db.transaction(() => {
@@ -180,6 +181,9 @@ function recordParse(
       });
     }
     if (parsed?.outcome === "parsed") {
+      if (parsed.mutation !== undefined) {
+        recordMutation(store, parsed.mutation, captureId);
+      }
       for (const issue of parsed.warnings) {
         issues.push({
           kind: "warning",

@@ -29,6 +29,10 @@ coverage/
 .env.*
 !.env.example
 
+# Other checkouts of this repo that tools place inside it (git worktrees).
+# Each is checked by its own run of the tools, from its own root.
+/.claude/worktrees/
+
 # OS and editor
 .DS_Store
 *.log

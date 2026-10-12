@@ -1,8 +1,10 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import Database from "better-sqlite3";
 import { expect, test } from "vitest";
+import { applyMigrations } from "./migrate.ts";
 import { migrations } from "./migrations/index.ts";
-import { getRawCapture } from "./raw-captures.ts";
+import { getRawCapture, insertRawCapture } from "./raw-captures.ts";
 import { connectionOf, openStore } from "./store.ts";
 import { openTempStore, tempDatabasePath } from "./testing/temp-database.ts";
 
@@ -82,4 +84,77 @@ test("a closed store refuses further use", () => {
   store.close();
 
   expect(() => getRawCapture(store, 1)).toThrow(/not open/);
+});
+
+test("a read-only store reads what is there and cannot change it", () => {
+  const path = tempDatabasePath();
+  const writer = openTempStore(path);
+  const { id } = insertRawCapture(writer, {
+    source: "x-web-client",
+    operation: "Bookmarks",
+    payload: "{}",
+  });
+
+  const reader = openTempStore(path, { readOnly: true });
+
+  expect(getRawCapture(reader, id)).toMatchObject({ payload: "{}" });
+  expect(() =>
+    insertRawCapture(reader, {
+      source: "x-web-client",
+      operation: "Bookmarks",
+      payload: "{}",
+    }),
+  ).toThrow(/readonly database/);
+  expect(() => connectionOf(reader).exec("CREATE TABLE planted (x)")).toThrow(
+    /readonly database/,
+  );
+});
+
+test("a read-only store sees what a writer adds while it is open", () => {
+  const path = tempDatabasePath();
+  const writer = openTempStore(path);
+  const reader = openTempStore(path, { readOnly: true });
+
+  const { id } = insertRawCapture(writer, {
+    source: "x-web-client",
+    operation: "Bookmarks",
+    payload: "{}",
+  });
+
+  expect(getRawCapture(reader, id)).toBeDefined();
+});
+
+test("a read-only open creates nothing where there is no database", () => {
+  const path = tempDatabasePath();
+
+  expect(() => openStore(path, { readOnly: true })).toThrow(
+    /There is no database at/,
+  );
+  expect(existsSync(path)).toBe(false);
+  expect(readdirSync(dirname(path))).toEqual([]);
+});
+
+test("a read-only open refuses a database it would have to migrate, and leaves it as it is", () => {
+  const path = tempDatabasePath();
+  const db = new Database(path);
+  applyMigrations(db, migrations.slice(0, migrations.length - 1));
+  db.close();
+
+  expect(() => openStore(path, { readOnly: true })).toThrow(
+    /a read-only open does not migrate it/,
+  );
+  const after = new Database(path);
+  expect(
+    after.prepare("SELECT count(*) FROM schema_migrations").pluck().get(),
+  ).toBe(migrations.length - 1);
+  after.close();
+});
+
+test("a read-only open refuses a file that is not a library at all", () => {
+  const path = tempDatabasePath();
+  new Database(path).exec("CREATE TABLE other (x)").close();
+
+  expect(() => openStore(path, { readOnly: true })).toThrow(
+    /at migration 0 of/,
+  );
 });

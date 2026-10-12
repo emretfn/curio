@@ -1,21 +1,62 @@
 # x-bookmarks web app
 
-The local app: a Next.js server on <http://127.0.0.1:47130>. It receives raw captures from [the extension](../extension/README.md), stores them through `@x-bookmarks/core`, and parses each one into bookmarks as it arrives. It also has a status page (`/`) and a page of pairing instructions (`/pair`). The library UI is a later phase.
+The local app: a Next.js server on <http://127.0.0.1:47130>. It receives raw captures from [the extension](../extension/README.md), stores them through `@x-bookmarks/core`, and parses each one into bookmarks as it arrives. Its main screen (`/`) is the library: the bookmarks, newest saved first, to read, search and filter. It also has a status page (`/status`) and a page of pairing instructions (`/pair`), and it backs the library up once a day.
 
 ```
 pnpm app                                # from the repo root: build, then serve
 pnpm pair                               # print the pairing token, creating it on first use
 pnpm reparse                            # parse every stored capture again, and list what was not understood
+pnpm backup                             # take a verified snapshot of the library now
 pnpm --filter @x-bookmarks/web dev      # development server, same address
 ```
 
 The database is `data/bookmarks.db` at the repo root and the pairing token is `data/ingest-token`. Set `X_BOOKMARKS_DATA_DIR` to keep them elsewhere. To unpair the extension, delete `ingest-token`, restart the app, and pair again.
 
+## The library
+
+`/` lists the bookmarks newest saved first, by core's bookmark time, under the month each was saved in. A post is read where it stands: long text opens in place, and a quoted post, a link card and an X Article's title and opening are shown with it. The search field and the filters in the side column narrow the list, and the whole state of the screen is in the address (`/?q=words&has=media,quote&lang=tr&year=2025&author=<id>&on=withheld`), so a search survives a reload and the back button. The product speaks English; a post keeps its own language, and search ignores case and accents, with the Turkish dotted and dotless i read alike.
+
+- **Search is core's search.** The field's text goes to `searchBookmarks` as typed, so the screen finds what the MCP server finds, folded and ranked the same way: every word must be found, a word of three letters or more also finds its longer forms, double quotes make a phrase. A search is listed best match first, under one heading in place of the months. What it found is marked in each post by core's `markMatches`, on the server; the browser holds no folding or matching code of its own.
+- **Removed and withheld.** A bookmark removed on X leaves the list and stays in the library, under "Removed on X" with the time (`/?on=removed`). "Withheld by X" lists the bookmarks whose post X no longer sends: first those the library captured earlier, which stay in every list with a mark, then those it never held, of which only the id is known.
+
+- **One module reads.** Every read the screen makes goes through `src/server/library.ts`: `listLibrary`, `getLibraryFacets`, `getLibraryStatus`. It holds no query of its own. It turns the screen's query into core's filter and calls `listBookmarks`, `searchBookmarks`, `summariseMatches`, `summariseLibrary` and `listWithheldPosts`; a question core cannot answer is added to core (READ-1), not answered there.
+- **A bookmark is turned into a view on the server** (`src/lib/post-view.ts`): dates written out, links checked to be HTTP or HTTPS, media addresses passed through the media policy, a search's matches marked. The components render the view and decide nothing.
+- **Only the rows near the screen are in the page** (`src/components/library/library-list.tsx`, on `@tanstack/react-virtual`). The list keeps every item it has loaded and draws a window of them, each row at the place its measured height gives it, so the page is as light at the end of the library as at its top. What a windowed list usually breaks is kept, and the end-to-end test holds each of these:
+  - A row is measured as it is and again when it changes, so opening a long text or showing media moves what is below it and nothing else.
+  - What a row remembers outlives it (`row-memory.tsx`): an opened text is open when its row comes back.
+  - **A row showing media from X stays in the page** until the list itself goes, however far it is scrolled. Its pictures are therefore never asked for a second time, and a video in it plays on where it is, from the same element. This is the price of that guarantee: with "Load media on screen" on, every post that has been on screen stays, and the page grows as it did before.
+  - The row with the keyboard's focus stays too, so scrolling away and back neither loses focus nor moves it. `J` and `K` go by the list's order, whether or not the next row is drawn yet.
+  - The month in view stays under the search bar. Each post says its place among all of them (`aria-posinset`, `aria-setsize`), since a screen reader finds only the rows that are drawn.
+  - A reload, or Back to the list, returns to the same place (`place.ts`): how many items were loaded, the scroll offset and the rows' measured heights are kept in the tab's session storage under the history entry's key, and the items are asked for again from this app. A visit by a link starts at the top. It needs the browser's Navigation API; without it no place is kept.
+  - **The browser's own Find sees only the rows that are drawn.** The search field (`/`) searches the whole library, and the shortcuts panel says so.
+- **The list** renders its first page with the screen and asks `GET /api/library` for each next page as the reader nears the end. A list by time continues from core's cursor, which keeps its place while captures arrive; a search, being ranked, is counted off by position. That route reads and never writes; like the other API routes it checks `Host` itself, sends no CORS header, and refuses a request the browser says came from another site.
+- **Status travels with the library.** While all is well it is one line at the foot of the side column. When a capture or an entry was not understood, captures wait for a re-parse, or the last backup failed, a banner above the list says so on every width, and both lead to `/status`.
+- **Keys:** `/` search, `J` and `K` next and previous post, `E` open or close a long post, `M` show the post's media, `O` open the post on X. With focus in a video player: Space plays and pauses, the left and right arrows move 5 seconds, up and down are volume, `<` and `>` speed, `0` to `9` jump to that tenth, `F` fills the screen. The map is `src/lib/shortcuts.ts`, and the player takes none of the list's keys, so `J` and `K` move on from inside one and there is no key for mute.
+- **Room left on purpose:** tags and categories are further groups in the side column and a row under each post's text; a digest and a chat are further entries beside "All bookmarks", and a chat panel is a third column in the grid of `src/app/page.tsx`.
+
+### Media
+
+Photos, videos, link-card pictures and article covers are on X's media CDN. Showing one is a request to X by the browser, so it happens only when the owner asks. `CODING_STANDARDS.md` X-7 to X-11 are the rules; in short:
+
+| Mode | What asks X's CDN for something |
+|---|---|
+| Default | Nothing. A placeholder says what is there: photo, video with its length, GIF, how many, and the description its author gave it. |
+| "Show media" on a post | That post's pictures, once each, from `pbs.twimg.com`. A quoted post has its own control. A video's file, from `video.twimg.com`, when play is pressed. |
+| "Load media on screen" on | The same as pressing "Show media", by itself, for a post whose placeholder has been at least half on screen in a visible tab for 300 ms. Off by default, kept in this browser's storage, never known to the server. |
+| Avatars | Never. Initials are shown. |
+| The server | Never. No proxy, no cache, no `next/image`. |
+
+Each request is sent without cookies (`crossOrigin="anonymous"`) and without a `Referer`. It does carry an `Origin` header with the app's local address, which is what a browser sends with a request of that kind. The page's Content-Security-Policy admits pictures and video from this app and those two hosts alone. The elements are in `src/components/library/x-media-element.tsx`, the reveal in `media.tsx`, the hosts, the address check and the policy in `src/lib/x-media-policy.ts`.
+
+**The player.** A video plays in the app's own player (`src/components/library/video-player.tsx`), not the browser's: play and pause, a timeline with the time gone and the whole, speed (1, 1.25, 1.5 and 2), mute and volume, full screen. The controls leave a playing picture alone after two and a half seconds without a pointer or a key, and come back at either; a finger's first tap brings them back, its second pauses. Volume, mute and speed are remembered in this browser. Starting one video pauses another. A GIF, which X serves as a short silent video, has no controls: it repeats without sound, and a press on it pauses and plays it. A video that does not load, or loads for eight seconds without playing, says so and offers "Try again".
+
+The player adds no request and changes none. It holds no element and names no address: `media.tsx` hands it the video element of `x-media-element.tsx`, which exists, as before, only once play is pressed, and asks for the one address a capture gave it, core's choice of the highest-bitrate MP4. The poster is the picture "Show media" already loaded, left in place under the video. The player tells the element to play, and at "Try again" to load again; a drag along the timeline seeks once, on release, where the browser's own player seeks all the way along. Picture-in-picture is left to the browser's menu on the video. Adaptive streaming is not built: it would ask X's CDN for a playlist and then for segments as playback goes, a different pattern of requests from the single file the rules allow.
+
 ## From capture to bookmark
 
 A delivery is two steps, in `src/server/ingest.ts`. First the capture is stored, exactly as it arrived; the answer to the extension depends on that alone. Then every stored capture that has not been parsed is parsed, oldest first, which is the new one and any left behind by an earlier failure or by an older version of the app. A response the parser does not understand is recorded as such beside its capture; nothing is thrown at the extension, and nothing is lost. If the parsing step itself breaks, the error is logged, the capture stays, and the next delivery or `pnpm reparse` picks it up.
 
-The status page shows the totals:
+The status page, `/status`, shows the totals:
 
 | Line | Meaning |
 |---|---|
@@ -25,11 +66,24 @@ The status page shows the totals:
 | Entries failed | Single bookmarks, inside understood responses, that were not understood and are not in the library. |
 | Parts left empty | Parts of stored bookmarks that were not understood, such as a new kind of link card. The bookmark is in the library without that part. |
 | Posts X withholds | Bookmarks whose post X no longer sends: deleted, or from a suspended or protected account. Not a parser problem. |
-| Captures with no parser yet | Responses of an operation nothing parses yet, such as adding or removing a bookmark. Not a failure. |
+| Captures with no parser yet | Responses of an operation nothing parses yet, such as a bookmark folder's timeline. Not a failure. |
 | Captures waiting for a re-parse | Stored and never parsed, or parsed by an older parser. `pnpm reparse` clears them. |
 | Last parsed | When a parse result was last recorded. |
 
 **Anything above zero in "Captures failed" or "Entries failed" means X has changed a response**, or sent a kind the parser has not met. This is the failure this route is prone to. Run `pnpm reparse`: it prints each kind of mismatch once, with the path into the response where understanding stopped and what was expected there, and never a bookmark's content. Then follow "When X changes a shape" in [the parsers' README](../core/src/parsers/README.md). `pnpm reparse` can run while the app is running, and a second run changes nothing.
+
+## Backups
+
+The raw captures cannot be collected again, so the app keeps snapshots of the whole database outside the repo.
+
+- **When.** As the app starts, and then once an hour, it looks whether a snapshot is due (`src/instrumentation.ts`, `src/server/backups.ts`). One is due when the latest is a day old, and is then taken as soon as the library differs from it. So there is never more than one a day, a library that is not changing is not copied again, and new captures wait an hour at most once a day has passed. `pnpm backup` takes one at any time, whatever the age of the last.
+- **What.** One file, `snapshot-<UTC time>.db`, a complete and consistent copy taken by SQLite while the app keeps running. Before it gets that name it is opened and checked: SQLite's integrity check, the same schema, and every raw capture equal to the database's, column for column. A file with a snapshot's name has passed.
+- **Where.** `../x-bookmarks-backups`, beside the repo, readable by you alone. Set `X_BOOKMARKS_BACKUP_DIR` to keep them elsewhere; another disk or a synced folder also covers the loss of this one. (When `X_BOOKMARKS_DATA_DIR` moves the data directory, the default becomes `backups` inside it.)
+- **How many.** The newest 10; `X_BOOKMARKS_BACKUP_KEEP` changes that. Only files with a snapshot's name are ever deleted, so copies you put there by hand stay.
+- **When it fails.** Every screen says so until a backup succeeds: the library in a banner above the list and in its status line, the status page in red on the Backups card, each with the reason, which is also logged. The app keeps running.
+- **Restoring.** Stop the app, move `data/bookmarks.db` and the `-wal` and `-shm` files beside it out of the way, copy the snapshot to `data/bookmarks.db`, start the app.
+
+The Backups card on the status page (`src/components/backup-status-card.tsx`) shows how many snapshots there are, the time of the latest, what the last look came to, and the directory.
 
 ## Who may write to the app
 
@@ -70,12 +124,13 @@ The unit tests in `src/server` cover each refusal. The end-to-end test attacks t
 - **The API routes are outside `src/proxy.ts`.** Next buffers the body of any request that passes through the proxy and silently cuts it at 10 MB (`experimental.proxyClientMaxBodySize`), which truncated large captures. The proxy's matcher therefore leaves `/api/` out, and those routes make the proxy's `Host` check themselves. The end-to-end test sends a 12 MB capture through the running server.
 - **Production mode by default.** `pnpm app` builds and serves, so the development server's extra endpoints are not exposed during everyday use.
 - **The build directory can be moved.** `X_BOOKMARKS_NEXT_DIR` names it; the default is `.next`. The end-to-end test builds into `.next-e2e`, because a rebuild of `.next` breaks an app that is serving from it. After that test `next-env.d.ts`, which is generated, points at `.next-e2e`; `pnpm typecheck` regenerates it.
+- **`src/instrumentation.ts`** is Next's start hook: `register()` runs once as the server starts, and starts the backups. It does nothing during `next build`.
 - **`AGENTS.md`** in this directory is written by `next dev`. It points at the Next documentation shipped in `node_modules/next/dist/docs/`, which is the reference for this version.
 
 ## shadcn/ui
 
-Set up with `shadcn init --preset nova` on the Base UI primitives (`components.json`), Tailwind v4, and one component, `card`, so that the pipeline is known to work. No visual design has been done; the preset is the CLI's default and the design phase is free to replace it with `shadcn apply`.
+Set up with `shadcn init --preset nova` on the Base UI primitives (`components.json`), Tailwind v4. The components the library uses are in `src/components/ui`; the library's own are in `src/components/library`. The preset's neutral palette is kept, with three additions in `src/app/globals.css`: a link colour, which is also the focus ring, a highlight for search matches, and a tint behind an author's initials.
 
 - Add components from this directory: `pnpm dlx shadcn@latest add <name>`, then `pnpm lint:fix` from the root, because the generated files are not in the repo's formatting.
-- One departure from the generated setup: the layout does not load the Geist font from Google at build time. `--font-sans` in `src/app/globals.css` is the system typeface, so building the app needs no network. Choosing a typeface belongs to the design phase.
+- Departures from the generated components: the layout does not load the Geist font from Google, at build time or in the browser, so `--font-sans` in `src/app/globals.css` is the system typeface and no page asks another host for a font; transitions name their properties instead of `all`; a pressed button scales to 0.96; and the sheet's slide is dropped for a reader who has asked for less motion.
 - The repo's strict TypeScript settings (`exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`) apply to generated components. `card` passes; if a later component does not, fix the component.

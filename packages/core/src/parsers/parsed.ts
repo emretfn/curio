@@ -43,6 +43,16 @@ export type ParsedEntry =
     });
 
 /**
+ * What a mutation response says was done to one bookmark: X confirmed that
+ * the post was bookmarked, or that its bookmark was removed. The moment is
+ * the capture's, which `parseCapture` supplies.
+ */
+export interface ParsedMutation {
+  kind: "bookmarked" | "removed";
+  postId: string;
+}
+
+/**
  * What a parser made of one payload.
  *
  * `parsed` with no entries means the response was understood and held no
@@ -55,8 +65,18 @@ export type ParsedCapture =
       entries: ParsedEntry[];
       /** Parts of the response outside any entry that were not understood. */
       warnings: ShapeIssue[];
+      /** Present when the response answers a mutation, which holds no entries. */
+      mutation?: ParsedMutation;
     }
   | { outcome: "failed"; issue: ShapeIssue };
 
-/** A parser: the text of one response in, what it holds out. No database access. */
-export type CaptureParser = (payload: string) => ParsedCapture;
+/**
+ * A parser: the text of one response in, what it holds out. No database
+ * access. `requestBody` is the body of the request that produced the
+ * response, as stored with the capture, for the operations that say what
+ * they act on only there; it is null when the capture has none.
+ */
+export type CaptureParser = (
+  payload: string,
+  requestBody?: string | null,
+) => ParsedCapture;

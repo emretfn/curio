@@ -13,11 +13,21 @@
  * "@x-bookmarks/core" is fine: they are erased.
  */
 export const {
+  backupStore,
+  excerpt,
   insertRawCaptureOnce,
+  listBookmarks,
   listParseIssues,
+  listSnapshots,
+  listWithheldPosts,
+  MAX_PAGE_SIZE,
+  markMatches,
   openStore,
   parsePendingCaptures,
   reparseAllCaptures,
+  searchBookmarks,
+  summariseLibrary,
+  summariseMatches,
   summariseParsing,
   summariseRawCaptures,
 }: typeof import("@x-bookmarks/core") = await import(

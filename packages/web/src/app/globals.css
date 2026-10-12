@@ -38,6 +38,9 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-link: var(--link);
+  --color-highlight: var(--highlight);
+  --color-highlight-foreground: var(--highlight-foreground);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -61,13 +64,17 @@
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  /* The preset's 0.556 gave 4.35:1 on the muted surface, under the 4.5:1
+     that small text needs. 0.54 gives 4.6:1 there and 5.1:1 on the page. */
+  --muted-foreground: oklch(0.54 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  /* The focus ring. It has to stand out from every surface it crosses, so
+     it is the link colour and not the preset's light grey. */
+  --ring: oklch(0.48 0.16 258);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -82,6 +89,17 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  /* A link inside a post's text, a search match, and the edge of a loaded image. */
+  --link: oklch(0.48 0.16 258);
+  --highlight: oklch(0.93 0.11 96);
+  --highlight-foreground: oklch(0.145 0 0);
+  --image-outline: oklch(0 0 0 / 0.1);
+  /* The tint behind an author's initials: lightness and chroma. */
+  --avatar-surface: 0.93 0.04;
+  --avatar-ink: 0.42 0.08;
+  /* The sticky search bar's height: anything scrolled to lands below it. */
+  --header-height: 3.5rem;
+  color-scheme: light;
 }
 
 .dark {
@@ -102,7 +120,7 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: oklch(0.8 0.1 250);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -116,6 +134,13 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --link: oklch(0.8 0.1 250);
+  --highlight: oklch(0.45 0.09 92);
+  --highlight-foreground: oklch(0.985 0 0);
+  --image-outline: oklch(1 0 0 / 0.1);
+  --avatar-surface: 0.32 0.045;
+  --avatar-ink: 0.86 0.07;
+  color-scheme: dark;
 }
 
 @layer base {
@@ -126,6 +151,89 @@
     @apply bg-background text-foreground;
   }
   html {
-    @apply font-sans;
+    @apply font-sans antialiased;
+    scroll-padding-block-start: calc(var(--header-height) + 0.5rem);
+  }
+  mark {
+    @apply rounded-[3px] bg-highlight text-highlight-foreground;
+    box-decoration-break: clone;
+    padding-block: 1px;
+  }
+}
+
+@layer components {
+  /*
+   * A post's text: the one place in the app that is read rather than
+   * scanned. 15px on a 1.6 line, 24px, wrapped as its author wrote it.
+   */
+  .post-text {
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    text-wrap: pretty;
+  }
+  .post-text a {
+    color: var(--link);
+    text-decoration-line: underline;
+    text-decoration-color: color-mix(in oklch, var(--link), transparent 65%);
+    text-decoration-thickness: from-font;
+    text-underline-position: from-font;
+    text-underline-offset: 2px;
+    transition: text-decoration-color 150ms ease-out;
+  }
+  @media (hover: hover) {
+    .post-text a:hover {
+      text-decoration-color: currentColor;
+    }
+  }
+
+  /* Lightness and chroma come from the theme, the hue from the author. */
+  .avatar-tint {
+    background-color: oklch(var(--avatar-surface) var(--hue, 250));
+    color: oklch(var(--avatar-ink) var(--hue, 250));
+  }
+
+  /* The edge of a loaded image: pure black or white, so it never tints. */
+  .image-outline {
+    outline: 1px solid var(--image-outline);
+    outline-offset: -1px;
+  }
+
+  /*
+   * A post in the list. Scrolled to by the keyboard, it lands clear of the
+   * search bar and of the month that stays under it.
+   */
+  .post-row {
+    scroll-margin-block-start: calc(var(--header-height) + 2.75rem);
+  }
+
+  /*
+   * A first-time entrance, for the empty library only: its parts arrive one
+   * after another. The hidden state lives in the keyframe, so with the
+   * animation off everything is simply there.
+   */
+  .enter-staged > * {
+    animation: enter-fade 300ms ease-out both;
+    animation-delay: calc(var(--stage, 0) * 100ms);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .enter-staged > * {
+      animation-name: enter-rise;
+    }
+  }
+}
+
+@keyframes enter-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes enter-rise {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    translate: 0 12px;
   }
 }

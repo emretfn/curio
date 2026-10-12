@@ -16,7 +16,7 @@
  * What this cannot see is said at the bottom of the standard: a URL that
  * arrives as data, a request made inside a dependency, a redirect.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { expect, test } from "vitest";
 import { X_OWNED_DOMAINS } from "./x-hosts.ts";
@@ -46,7 +46,13 @@ function sourceFiles(directory: string = repoRoot): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
-      return SKIPPED_DIRECTORIES.has(entry.name) ? [] : sourceFiles(path);
+      // A directory with a `.git` of its own is another checkout, such as a
+      // linked worktree. It is not this tree's source: its own run of this
+      // test reads it, under the paths these lists name.
+      return SKIPPED_DIRECTORIES.has(entry.name) ||
+        existsSync(join(path, ".git"))
+        ? []
+        : sourceFiles(path);
     }
     return SOURCE_FILE.test(entry.name) && !SKIPPED_FILES.has(entry.name)
       ? [relative(repoRoot, path)]
@@ -63,14 +69,19 @@ export const namesXHost = (source: string) => X_HOST.test(source);
 
 /** Node's own ways out: its network modules, and a shell, which has curl. */
 const NODE_MODULES = "https?|http2|net|tls|dgram|dns|child_process";
-/** HTTP clients and browser drivers in common use. */
+/**
+ * HTTP clients and browser drivers in common use, and the MCP library, which
+ * holds HTTP transports beside the stdio one this repo uses and starts
+ * processes for its clients.
+ */
 const PACKAGES =
-  "undici|axios|got|ky|node-fetch|superagent|needle|request|ws|playwright|playwright-core|puppeteer|puppeteer-core|selenium-webdriver|jsdom|open";
+  "undici|axios|got|ky|node-fetch|superagent|needle|request|ws|playwright|playwright-core|puppeteer|puppeteer-core|selenium-webdriver|jsdom|open|@modelcontextprotocol/[a-z-]+";
 
 /**
  * Anything that makes a request or has a browser make one: the request
  * functions, an import of one of the modules above or a dependency on one,
- * and the elements and style rules that load from a URL.
+ * the elements and style rules that load from a URL, and code that tells a
+ * media element to play or to load, which is when it asks for its file.
  */
 const REQUEST = new RegExp(
   [
@@ -78,6 +89,7 @@ const REQUEST = new RegExp(
     `(?:from|import|require)\\s*\\(?\\s*["'](?:(?:node:)?(?:${NODE_MODULES})|(?:${PACKAGES})(?:/[^"']*)?)["']`,
     `"(?:${PACKAGES})"\\s*:`,
     "next/image|<(?:img|video|audio|source|iframe|embed|object|picture)\\b",
+    "\\.(?:play|load)\\(\\)",
     "\\burl\\(\\s*[\"']?(?:https?:)?//",
   ].join("|"),
 );
@@ -105,12 +117,20 @@ const NAMES_X_HOSTS: Record<string, string> = {
     "A comment saying which pages the hook runs on.",
   "packages/extension/src/relay.ts":
     "A comment saying which pages the relay runs on.",
+  "packages/web/src/lib/x-links.ts":
+    "Builds the address of a post on X for a plain link the owner clicks, in a new tab. It builds a string and requests nothing.",
+  "packages/web/src/lib/x-media-policy.ts":
+    "X's two media hosts: the only ones a media address may be on, and the only ones the page's Content-Security-Policy admits (X-7, X-11). It compares and builds strings and requests nothing.",
   "packages/e2e/src/capture.e2e.ts":
     "The end-to-end test. Its browser resolves every hostname to a server in the test.",
   "packages/e2e/src/fake-x.ts":
     "The fake X the test browser is sent to instead of the real one.",
   "packages/e2e/src/shapes-page.js":
     "The page the fake X serves, standing in for X's web client.",
+  "packages/mcp/src/format.ts":
+    "Writes the address of a post into a result, for the user to open in their own browser. It builds a string.",
+  "packages/mcp/src/server.ts":
+    "The instructions given to the client, which name X's hosts to say that none of them may be requested.",
 };
 
 /** Files that make requests or have a browser load something, and where to. Test files included. */
@@ -129,6 +149,16 @@ const MAKES_REQUESTS: Record<string, string> = {
     "Runs delivery against the fake fetch of testing.ts.",
   "packages/extension/src/background.test.ts":
     "Reads the service worker's source to check what it may reach.",
+  "packages/web/src/components/library/x-media-element.tsx":
+    "The exception of X-7: the picture and video elements, which have the owner's browser load a post's media from X's media CDN. Rendered only by media.tsx, after the owner pressed Show media on that post or turned on the on-screen setting; never for an avatar, and never by the server.",
+  "packages/web/src/components/library/video-player.tsx":
+    "The app's own controls around the video element of x-media-element.tsx. It tells that element to play, and to load again when the owner presses Try again after a failure or a hang: each asks X's video CDN for the one address the element was given, and each follows a press (X-7). It names no address, holds no element of its own and starts nothing by itself.",
+  "packages/web/src/components/library/load-more.ts":
+    "Asks this app for the next page of the list, at the relative address /api/library. The page's Content-Security-Policy lets script connect nowhere else.",
+  "packages/web/src/server/library-page.ts":
+    "A route of this app. It reads the Sec-Fetch-Site header of a request it was sent, to refuse other sites' pages. It answers requests and makes none.",
+  "packages/web/src/server/library-page.test.ts":
+    "Hands that route requests built in the test, with that header set. Nothing is sent.",
   "packages/e2e/package.json":
     "Depends on Playwright, which drives the test browser.",
   "packages/e2e/src/capture.e2e.ts":
@@ -138,6 +168,14 @@ const MAKES_REQUESTS: Record<string, string> = {
     "Runs inside the test browser, where x.com is the fake.",
   "packages/core/src/no-requests-to-x.test.ts":
     "This check: the names of request functions, as patterns.",
+  "packages/mcp/package.json":
+    "Depends on the MCP library, for its stdio transport alone. server.test.ts pins which of its modules are loaded.",
+  "packages/mcp/src/server.ts":
+    "Defines the tools on the MCP library's server object. It is given no transport here and opens none.",
+  "packages/mcp/src/main.ts":
+    "Serves over this process's standard input and output. It opens no socket and makes no request.",
+  "packages/mcp/src/main.test.ts":
+    "Starts the server as a child process and speaks to it over its pipes, as a client does.",
 };
 
 /**
@@ -161,6 +199,10 @@ const REQUESTS_BESIDE_X_HOSTS: Record<string, string> = {
     "Its requests are relative to the page, which the fake serves.",
   "packages/core/src/no-requests-to-x.test.ts":
     "This check. It reads files and requests nothing.",
+  "packages/mcp/src/server.ts":
+    "The hosts are in a sentence telling the client never to request them. The server has no way to request anything: its one transport is the pipe it was started with.",
+  "packages/mcp/src/main.test.ts":
+    "The address of a post is compared with the server's answer as a string. The only process started is the server, over pipes.",
 };
 
 const files = sourceFiles().map((path) => ({
@@ -181,6 +223,8 @@ test("the check reads the whole repo, every package included", () => {
     "packages/web/src/app/page.tsx",
     "packages/web/reparse.ts",
     "packages/e2e/src/fake-x.ts",
+    "packages/mcp/src/server.ts",
+    "packages/mcp/package.json",
     "lint/sqlite-boundary.grit",
   ]) {
     expect(paths).toContain(expected);
@@ -297,10 +341,20 @@ test.each([
   ["a client loaded on demand", 'const { request } = await import("undici");'],
   ["a browser driver as a dependency", '"playwright": "^1.64.0"'],
   [
+    "the MCP library, which has HTTP transports",
+    'import { McpServer } from "@modelcontextprotocol/server";',
+  ],
+  [
+    "the MCP library as a dependency",
+    '"@modelcontextprotocol/client": "^2.3.1"',
+  ],
+  [
     "an image the user's browser would load",
     "<img src={media.imageUrl} alt={media.altText} />",
   ],
   ["a video", "<video controls src={media.videoUrl}></video>"],
+  ["a video told to play", "video.play().catch(() => {});"],
+  ["a video told to load again", "element.load();"],
   ["Next's image component", 'import Image from "next/image";'],
   ["an embedded page", "<iframe src={post.url} />"],
   [
@@ -319,6 +373,8 @@ test.each([
   'import Link from "next/link";',
   'const kind = "request";',
   "window.open(link.url);",
+  "const loaded = store.load(path);",
+  "display.playback = player.played();",
 ])("%s makes none", (source) => {
   expect(makesRequests(source)).toBe(false);
 });

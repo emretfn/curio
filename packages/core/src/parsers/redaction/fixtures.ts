@@ -399,8 +399,17 @@ const BOOKMARKS_FIXTURES: readonly FixtureSpec[] = [
 export interface CapturedResponse {
   operation: string;
   payload: string;
+  /** The body of the request that produced the response, when it had one. */
+  requestBody?: string | null;
   receivedAt: Date;
 }
+
+/**
+ * The mutations a fixture is made of. A mutation's response says only that
+ * it was done and its request names the post, so each becomes two files: the
+ * response, and beside it the request body as `<name>.request.json`.
+ */
+const MUTATIONS = ["CreateBookmark", "DeleteBookmark"] as const;
 
 export interface BuiltFixture {
   /** Path under the fixtures directory, such as `x-web-client/Bookmarks/2026-10-12-media.json`. */
@@ -453,20 +462,41 @@ export function buildFixtures(captures: readonly CapturedResponse[]): {
       capture,
       json: JSON.parse(capture.payload) as unknown,
     }));
+  const mutations = MUTATIONS.flatMap((operation) => {
+    const capture = captures.find(
+      (candidate) =>
+        candidate.operation === operation &&
+        typeof candidate.requestBody === "string",
+    );
+    return capture === undefined
+      ? []
+      : [
+          {
+            capture,
+            response: JSON.parse(capture.payload) as unknown,
+            request: JSON.parse(capture.requestBody ?? "") as unknown,
+          },
+        ];
+  });
   // No invented value may equal a real one, from any capture.
   const real = new Set<string>();
   for (const { json } of pages) collectValues(json, real);
+  for (const { request } of mutations) collectValues(request, real);
+  const nameOf = (capture: CapturedResponse, shows: string) =>
+    `${capture.receivedAt.toISOString().slice(0, 10)}-${shows}`;
+  const textOf = (redacted: unknown) =>
+    `${JSON.stringify(redacted, null, 2)}\n`;
   const serialise = (
     operation: string,
     shows: string,
     capture: CapturedResponse,
     json: unknown,
   ): BuiltFixture => {
-    const name = `${capture.receivedAt.toISOString().slice(0, 10)}-${shows}.json`;
+    const name = `${nameOf(capture, shows)}.json`;
     const redacted = createRedactor(seedOf(name), real).redact(json);
     return {
       path: `x-web-client/${operation}/${name}`,
-      text: `${JSON.stringify(redacted, null, 2)}\n`,
+      text: textOf(redacted),
     };
   };
 
@@ -532,6 +562,23 @@ export function buildFixtures(captures: readonly CapturedResponse[]): {
         folders,
         JSON.parse(folders.payload),
       ),
+    );
+  }
+
+  for (const { capture, response, request } of mutations) {
+    const name = nameOf(capture, "done");
+    // One redactor for the pair, as they are one capture.
+    const redactor = createRedactor(seedOf(`${name}.json`), real);
+    const directory = `x-web-client/${capture.operation}`;
+    fixtures.push(
+      {
+        path: `${directory}/${name}.json`,
+        text: textOf(redactor.redact(response)),
+      },
+      {
+        path: `${directory}/${name}.request.json`,
+        text: textOf(redactor.redact(request)),
+      },
     );
   }
 

@@ -40,10 +40,40 @@ export interface Bookmark extends PostContent {
   /**
    * An estimate of when the bookmark was made, read out of `sortIndex`. Null
    * when there is no `sortIndex` or it does not hold a believable time. It is
-   * X's value, not a promise: prefer it to `firstSeenAt` for "when was this
-   * bookmarked", and never write it into `firstSeenAt`.
+   * X's value, not a promise, and is never written into `firstSeenAt`. For
+   * "when was this bookmarked", read `bookmarkedAt`.
    */
   estimatedBookmarkedAt: Date | null;
+  /**
+   * When X confirmed the bookmark being made, for a bookmark made in the
+   * browser while the extension was capturing: the time the latest
+   * `CreateBookmark` response for this post was received. Null for every
+   * bookmark made anywhere else, which is most of them.
+   */
+  observedBookmarkedAt: Date | null;
+  /**
+   * When the bookmark was made, as well as the library knows: the later of
+   * `observedBookmarkedAt` and `estimatedBookmarkedAt`, or `firstSeenAt` when
+   * there is neither. The later of the two, because a post bookmarked again
+   * has two bookmark times and the current bookmark is the newer. This is the
+   * time that lists are ordered by and time ranges are taken over.
+   */
+  bookmarkedAt: Date;
+  /**
+   * When the bookmark was removed on X, as far as the captures show: the time
+   * X confirmed a `DeleteBookmark` for this post, unless it was bookmarked
+   * again or seen in the bookmarks timeline after that. Null for a bookmark
+   * that is still one. A removed bookmark stays in the library; queries leave
+   * it out unless asked to include it.
+   */
+  removedOnXAt: Date | null;
+  /**
+   * When a capture last found X withholding this post, later than every
+   * capture that still held it: the post was deleted, or its author's account
+   * is now protected or suspended. Null while X still sends the post. The
+   * library keeps the copy it captured before, and nothing asks X for more.
+   */
+  withheldOnXAt: Date | null;
   /**
    * When the capture that first contained this bookmark was received. This is
    * when the bookmark entered the library, which for a backfill is the day of
@@ -84,7 +114,7 @@ export function estimateBookmarkedAt(
     : null;
 }
 
-interface BookmarkRow {
+export interface BookmarkRow {
   postId: string;
   authorId: string;
   authorHandle: string;
@@ -110,6 +140,10 @@ interface BookmarkRow {
   viewCount: number | null;
   sortIndex: string | null;
   estimatedBookmarkedAt: number | null;
+  observedBookmarkedAt: number | null;
+  bookmarkedAt: number;
+  removedOnXAt: number | null;
+  withheldOnXAt: number | null;
   firstSeenAt: number;
   firstSeenCaptureId: number;
   lastSeenAt: number;
@@ -144,12 +178,50 @@ const CONTENT_COLUMNS = [
   ["estimated_bookmarked_at", "estimatedBookmarkedAt"],
 ] as const satisfies readonly (readonly [string, keyof BookmarkRow])[];
 
-const SELECT_BOOKMARK = `
-  SELECT post_id AS postId,
-         ${CONTENT_COLUMNS.map(([column, name]) => `${column} AS ${name}`).join(", ")},
-         first_seen_at AS firstSeenAt, first_seen_capture_id AS firstSeenCaptureId,
-         last_seen_at AS lastSeenAt, last_seen_capture_id AS lastSeenCaptureId
-  FROM bookmarks`;
+/**
+ * Package-internal: the bookmark time of a row of `bookmarks b` joined to its
+ * `bookmark_mutations m`. See `Bookmark.bookmarkedAt`.
+ */
+export const BOOKMARKED_AT = `coalesce(
+    max(m.bookmarked_at, b.estimated_bookmarked_at),
+    m.bookmarked_at, b.estimated_bookmarked_at, b.first_seen_at)`;
+
+/**
+ * Package-internal: when the bookmark of such a row was removed on X, or
+ * null. A removal stands only while nothing later shows the post bookmarked:
+ * no `CreateBookmark`, and no page of the timeline that lists it.
+ */
+export const REMOVED_ON_X_AT = `CASE
+    WHEN m.removed_at > max(b.last_seen_at, coalesce(m.bookmarked_at, 0))
+    THEN m.removed_at END`;
+
+/**
+ * Package-internal: when a capture last found X withholding the post of a
+ * row of `bookmarks b`, or null. Like a removal, it is read and never stored,
+ * and it stands only while no later capture holds the post again.
+ */
+export const WITHHELD_ON_X_AT = `(
+    SELECT max(c.received_at)
+    FROM parse_issues i
+    JOIN raw_captures c ON c.id = i.capture_id
+    WHERE i.kind = 'post-unavailable' AND i.post_id = b.post_id
+      AND c.received_at > b.last_seen_at)`;
+
+/** Package-internal: the columns of a `BookmarkRow`, for `bookmarkFromRow`, read from `FROM_BOOKMARKS`. */
+export const SELECT_BOOKMARK_COLUMNS = `
+  SELECT b.post_id AS postId,
+         ${CONTENT_COLUMNS.map(([column, name]) => `b.${column} AS ${name}`).join(", ")},
+         m.bookmarked_at AS observedBookmarkedAt,
+         ${BOOKMARKED_AT} AS bookmarkedAt,
+         ${REMOVED_ON_X_AT} AS removedOnXAt,
+         ${WITHHELD_ON_X_AT} AS withheldOnXAt,
+         b.first_seen_at AS firstSeenAt, b.first_seen_capture_id AS firstSeenCaptureId,
+         b.last_seen_at AS lastSeenAt, b.last_seen_capture_id AS lastSeenCaptureId`;
+
+/** Package-internal: every bookmark as `b`, with what the mutations say about its post as `m`. */
+export const FROM_BOOKMARKS = `
+  FROM bookmarks b
+  LEFT JOIN bookmark_mutations m ON m.post_id = b.post_id`;
 
 const UPSERT_BOOKMARK = `
   INSERT INTO bookmarks (
@@ -189,7 +261,8 @@ function loadQuoted(stored: string | null): QuotedPost | null {
     : quoted;
 }
 
-function fromRow(row: BookmarkRow): Bookmark {
+/** Package-internal: a row of `SELECT_BOOKMARK_COLUMNS` as a `Bookmark`. */
+export function bookmarkFromRow(row: BookmarkRow): Bookmark {
   return {
     ...row,
     authorVerified: row.authorVerified === 1,
@@ -204,6 +277,14 @@ function fromRow(row: BookmarkRow): Bookmark {
       row.estimatedBookmarkedAt === null
         ? null
         : new Date(row.estimatedBookmarkedAt),
+    observedBookmarkedAt:
+      row.observedBookmarkedAt === null
+        ? null
+        : new Date(row.observedBookmarkedAt),
+    bookmarkedAt: new Date(row.bookmarkedAt),
+    removedOnXAt: row.removedOnXAt === null ? null : new Date(row.removedOnXAt),
+    withheldOnXAt:
+      row.withheldOnXAt === null ? null : new Date(row.withheldOnXAt),
     firstSeenAt: new Date(row.firstSeenAt),
     lastSeenAt: new Date(row.lastSeenAt),
   };
@@ -245,7 +326,10 @@ export function upsertBookmark(
             sighting.postedAt,
             new Date(capture.receivedAt),
           );
-    const row: Omit<BookmarkRow, `firstSeen${string}` | `lastSeen${string}`> = {
+    const row: Pick<
+      BookmarkRow,
+      "postId" | (typeof CONTENT_COLUMNS)[number][1]
+    > = {
       postId: sighting.postId,
       authorId: sighting.authorId,
       authorHandle: sighting.authorHandle,
@@ -291,7 +375,9 @@ export function getBookmark(
   postId: string,
 ): Bookmark | undefined {
   const row = connectionOf(store)
-    .prepare<[string], BookmarkRow>(`${SELECT_BOOKMARK} WHERE post_id = ?`)
+    .prepare<[string], BookmarkRow>(
+      `${SELECT_BOOKMARK_COLUMNS} ${FROM_BOOKMARKS} WHERE b.post_id = ?`,
+    )
     .get(postId);
-  return row && fromRow(row);
+  return row && bookmarkFromRow(row);
 }

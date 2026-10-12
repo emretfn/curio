@@ -17,6 +17,7 @@
   "include": [
     "next-env.d.ts",
     "next.config.ts",
+    "backup.ts",
     "pair.ts",
     "reparse.ts",
     "src",
