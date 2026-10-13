@@ -9,6 +9,7 @@
   "scripts": {
     "demo": "node src/cli.ts",
     "screenshots": "node src/screenshots.ts",
+    "diagram": "node src/diagram.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

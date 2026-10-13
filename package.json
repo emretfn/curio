@@ -17,6 +17,7 @@
     "digest": "pnpm --silent --filter @x-bookmarks/tagger run digest",
     "demo": "pnpm --silent --filter @x-bookmarks/demo run demo",
     "screenshots": "pnpm --silent --filter @x-bookmarks/demo run screenshots",
+    "diagram": "pnpm --silent --filter @x-bookmarks/demo run diagram",
     "fixtures:build": "pnpm --silent --filter @x-bookmarks/core run fixtures:build",
     "fixtures:check": "pnpm --silent --filter @x-bookmarks/core run fixtures:check",
     "typecheck": "tsc --noEmit && pnpm --recursive run typecheck",

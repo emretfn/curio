@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Curio architecture</title>
+  <!--
+    The source of docs/architecture/architecture-light.png and -dark.png.
+    Edit this file, then run `pnpm diagram` from the repo root to export both.
+
+    One file serves both themes: the tokens below are redefined under
+    prefers-color-scheme, as the app's are under its .dark class, and the
+    export renders the page once in each.
+
+    The skin is the app's own. Every colour is a token of
+    packages/web/src/app/globals.css, resolved from OKLCH to sRGB by hand:
+      paper   background          muted   muted-foreground
+      card    card                rule    border
+      ink     foreground          accent  link (the app's one colour)
+      stop    destructive
+    The typefaces are the app's too: the system's sans, as --font-sans there,
+    and the system's monospace. There is no web font and no request of any
+    kind. The two margin notes are in the system's serif, italic.
+  -->
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --paper: #ffffff;
+      --card: #ffffff;
+      --ink: #0a0a0a;
+      --ink-rgb: 10, 10, 10;
+      --muted: #6f6f6f;
+      --muted-rgb: 111, 111, 111;
+      --rule: #e5e5e5;
+      --accent: #1659b5;
+      --accent-rgb: 22, 89, 181;
+      --stop: #e7000b;
+      /* The ground inside the trust boundary: a 3% wash of the accent. */
+      --zone: color-mix(in srgb, var(--accent) 3%, var(--paper));
+      --font-sans: ui-sans-serif, system-ui, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --font-serif: ui-serif, Georgia, "Times New Roman", serif;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #0a0a0a;
+        --card: #171717;
+        --ink: #fafafa;
+        --ink-rgb: 250, 250, 250;
+        --muted: #a1a1a1;
+        --muted-rgb: 161, 161, 161;
+        --rule: #262626;
+        --accent: #8cc3fc;
+        --accent-rgb: 140, 195, 252;
+        --stop: #ff6467;
+        color-scheme: dark;
+      }
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--paper);
+      color: var(--ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1200px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-sans);
+      font-size: 1.75rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+
+    svg { width: 100%; min-width: 960px; display: block; }
+
+    /* Ground, boundary and masks */
+    .paper { fill: var(--paper); }
+    .zone { fill: var(--zone); stroke: rgba(var(--accent-rgb), 0.5); stroke-width: 1; stroke-dasharray: 4 4; }
+    .mask { fill: var(--paper); }
+    .mask-zone { fill: var(--zone); }
+
+    /* Nodes */
+    .node-mask { fill: var(--paper); }
+    .node { fill: var(--card); stroke: var(--ink); stroke-width: 1; }
+    .node-external { fill: rgba(var(--ink-rgb), 0.03); stroke: rgba(var(--ink-rgb), 0.3); stroke-width: 1; }
+    .node-focal { fill: rgba(var(--accent-rgb), 0.08); stroke: var(--accent); stroke-width: 1; }
+    .node-optional { fill: rgba(var(--ink-rgb), 0.02); stroke: rgba(var(--ink-rgb), 0.3); stroke-width: 1; stroke-dasharray: 4 3; }
+    .tag { fill: none; stroke: rgba(var(--ink-rgb), 0.3); stroke-width: 0.8; }
+    .tag-focal { fill: none; stroke: rgba(var(--accent-rgb), 0.5); stroke-width: 0.8; }
+
+    /* Type: the standard ramp */
+    text { font-family: var(--font-sans); }
+    .name { fill: var(--ink); font-size: 12px; font-weight: 600; text-anchor: middle; }
+    .sub { fill: var(--muted); font-family: var(--font-mono); font-size: 9px; text-anchor: middle; }
+    .tag-text { fill: var(--muted); font-family: var(--font-mono); font-size: 8px; font-weight: 500; letter-spacing: 0.08em; text-anchor: middle; }
+    .tag-text-focal { fill: var(--accent); }
+    .label { fill: var(--muted); font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.06em; text-anchor: middle; }
+    .label-stop { fill: var(--stop); font-weight: 500; }
+    .zone-label { fill: var(--muted); font-family: var(--font-mono); font-size: 8px; font-weight: 500; letter-spacing: 0.14em; text-anchor: middle; }
+    .callout { fill: var(--ink); font-family: var(--font-serif); font-size: 14px; font-style: italic; }
+    .legend-title { fill: var(--muted); font-family: var(--font-mono); font-size: 8px; font-weight: 500; letter-spacing: 0.14em; }
+    .legend-text { fill: var(--muted); font-family: var(--font-mono); font-size: 9px; }
+
+    /* Paths */
+    .flow { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+    .flow-optional { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: 5 4; }
+    .blocked { fill: none; stroke: var(--stop); stroke-width: 1.2; stroke-dasharray: 2 3; }
+    .stop-bar { fill: none; stroke: var(--stop); stroke-width: 2.4; stroke-linecap: round; }
+    .head { fill: var(--muted); }
+    .leader { fill: none; stroke: rgba(var(--ink-rgb), 0.4); stroke-width: 1; stroke-dasharray: 4 3; }
+    .dot { fill: var(--ink); }
+    .hairline { stroke: rgba(var(--ink-rgb), 0.1); stroke-width: 0.8; }
+
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · Curio</p>
+    <h1>What stays on your computer, and the two ways out</h1>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 960 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="architecture-title architecture-desc">
+        <title id="architecture-title">How Curio moves your bookmarks</title>
+        <desc id="architecture-desc">Architecture diagram: the extension copies what X's bookmarks page was sent and hands it to the local app, which keeps it in one SQLite file that a read-only MCP server and an optional tagger read; the extension sends X nothing, and what reaches Anthropic is the post text the tagger sends when you run it and the posts Claude reads when you ask it.</desc>
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="head" points="0 0, 8 3, 0 6"/></marker>
+        </defs>
+
+        <rect class="paper" width="100%" height="100%"/>
+
+        <!-- Trust boundary: your computer. Drawn first, under everything. -->
+        <rect class="zone" x="216" y="64" width="528" height="408" rx="8"/>
+        <rect class="mask-zone" x="648" y="68" width="88" height="12" rx="2"/>
+        <text class="zone-label" x="692" y="77">YOUR COMPUTER</text>
+
+        <!-- Paths, before the boxes -->
+        <!-- X to the extension: the page's own responses, copied. The one way in. -->
+        <line class="flow" x1="168" y1="156" x2="296" y2="156" marker-end="url(#arrow)"/>
+        <!-- The extension toward X: blocked at the boundary. It sends X nothing. -->
+        <line class="blocked" x1="296" y1="180" x2="228" y2="180"/>
+        <line class="stop-bar" x1="224" y1="173" x2="224" y2="187"/>
+        <!-- The extension to the app: raw captures, signed with the pairing token. -->
+        <line class="flow" x1="424" y1="168" x2="488" y2="168" marker-end="url(#arrow)"/>
+        <!-- The app to the one file, through core. -->
+        <line class="flow" x1="552" y1="200" x2="552" y2="248" marker-end="url(#arrow)"/>
+        <!-- The file to the MCP server, which opens it read-only. -->
+        <line class="flow" x1="488" y1="280" x2="424" y2="280" marker-end="url(#arrow)"/>
+        <!-- The MCP server toward any network: blocked. It has none. -->
+        <line class="blocked" x1="296" y1="280" x2="228" y2="280"/>
+        <line class="stop-bar" x1="224" y1="273" x2="224" y2="287"/>
+        <!-- The MCP server to Claude Code or Desktop, over standard input and output. -->
+        <line class="flow" x1="360" y1="312" x2="360" y2="360" marker-end="url(#arrow)"/>
+        <!-- The file to the tagger: only when you run it. -->
+        <line class="flow-optional" x1="552" y1="312" x2="552" y2="360" marker-end="url(#arrow)"/>
+        <!-- The tagger to the Claude API: the one way out for post text, and only when you run it. -->
+        <line class="flow-optional" x1="616" y1="392" x2="792" y2="392" marker-end="url(#arrow)"/>
+        <!-- Claude Code or Desktop to Anthropic: whatever Claude reads becomes part of your conversation. -->
+        <path class="flow-optional" d="M 360,424 V 448 Q 360,456 368,456 H 848 Q 856,456 856,448 V 424" marker-end="url(#arrow)"/>
+        <!-- A post's media, loaded from X's media CDN by your browser when you press Show media. -->
+        <path class="flow-optional" d="M 552,136 V 112 Q 552,104 544,104 H 112 Q 104,104 104,112 V 136" marker-end="url(#arrow)"/>
+
+        <!-- Path labels, each on a mask of the ground it sits on -->
+        <rect class="mask-zone" x="234" y="136" width="44" height="12" rx="2"/>
+        <text class="label" x="256" y="145">COPIED</text>
+
+        <rect class="mask-zone" x="218" y="186" width="76" height="12" rx="2"/>
+        <text class="label label-stop" x="256" y="195">NOTHING SENT</text>
+
+        <rect class="mask-zone" x="434" y="148" width="44" height="12" rx="2"/>
+        <text class="label" x="456" y="157">SIGNED</text>
+
+        <rect class="mask-zone" x="560" y="218" width="76" height="12" rx="2"/>
+        <text class="label" x="598" y="227">THROUGH CORE</text>
+
+        <rect class="mask-zone" x="426" y="260" width="60" height="12" rx="2"/>
+        <text class="label" x="456" y="269">READ ONLY</text>
+
+        <rect class="mask-zone" x="224" y="286" width="64" height="12" rx="2"/>
+        <text class="label label-stop" x="256" y="295">NO NETWORK</text>
+
+        <rect class="mask-zone" x="368" y="330" width="36" height="12" rx="2"/>
+        <text class="label" x="386" y="339">STDIO</text>
+
+        <rect class="mask-zone" x="560" y="330" width="60" height="12" rx="2"/>
+        <text class="label" x="590" y="339">POST TEXT</text>
+
+        <rect class="mask-zone" x="642" y="372" width="76" height="12" rx="2"/>
+        <text class="label" x="680" y="381">YOU START IT</text>
+
+        <rect class="mask-zone" x="558" y="436" width="84" height="12" rx="2"/>
+        <text class="label" x="600" y="445">POSTS IT READS</text>
+
+        <rect class="mask-zone" x="296" y="84" width="64" height="12" rx="2"/>
+        <text class="label" x="328" y="93">SHOW MEDIA</text>
+
+        <!-- Node: X, outside -->
+        <rect class="node-mask" x="40" y="136" width="128" height="64" rx="6"/>
+        <rect class="node-external" x="40" y="136" width="128" height="64" rx="6"/>
+        <rect class="tag" x="48" y="144" width="32" height="12" rx="2"/>
+        <text class="tag-text" x="64" y="153">SITE</text>
+        <text class="name" x="104" y="170">X</text>
+        <text class="sub" x="104" y="186">your bookmarks page</text>
+
+        <!-- Node: the capture extension -->
+        <rect class="node-mask" x="296" y="136" width="128" height="64" rx="6"/>
+        <rect class="node" x="296" y="136" width="128" height="64" rx="6"/>
+        <text class="name" x="360" y="166">Extension</text>
+        <text class="sub" x="360" y="182">in your browser</text>
+
+        <!-- Node: the local app -->
+        <rect class="node-mask" x="488" y="136" width="128" height="64" rx="6"/>
+        <rect class="node" x="488" y="136" width="128" height="64" rx="6"/>
+        <text class="name" x="552" y="166">Curio app</text>
+        <text class="sub" x="552" y="182">127.0.0.1:47130</text>
+
+        <!-- Node: the MCP server -->
+        <rect class="node-mask" x="296" y="248" width="128" height="64" rx="6"/>
+        <rect class="node" x="296" y="248" width="128" height="64" rx="6"/>
+        <text class="name" x="360" y="278">MCP server</text>
+        <text class="sub" x="360" y="294">started by Claude</text>
+
+        <!-- Node: the one SQLite file (focal) -->
+        <rect class="node-mask" x="488" y="248" width="128" height="64" rx="6"/>
+        <rect class="node-focal" x="488" y="248" width="128" height="64" rx="6"/>
+        <rect class="tag-focal" x="496" y="256" width="56" height="12" rx="2"/>
+        <text class="tag-text tag-text-focal" x="524" y="265">ONE FILE</text>
+        <text class="name" x="552" y="284">SQLite library</text>
+        <text class="sub" x="552" y="300">data/bookmarks.db</text>
+
+        <!-- Node: Claude Code or Desktop -->
+        <rect class="node-mask" x="296" y="360" width="128" height="64" rx="6"/>
+        <rect class="node" x="296" y="360" width="128" height="64" rx="6"/>
+        <text class="name" x="360" y="390">Claude Code</text>
+        <text class="sub" x="360" y="406">or Claude Desktop</text>
+
+        <!-- Node: the tagger (optional) -->
+        <rect class="node-mask" x="488" y="360" width="128" height="64" rx="6"/>
+        <rect class="node-optional" x="488" y="360" width="128" height="64" rx="6"/>
+        <rect class="tag" x="496" y="368" width="56" height="12" rx="2"/>
+        <text class="tag-text" x="524" y="377">OPTIONAL</text>
+        <text class="name" x="552" y="396">Tagger</text>
+        <text class="sub" x="552" y="412">pnpm tag, digest</text>
+
+        <!-- Node: Anthropic, outside (optional) -->
+        <rect class="node-mask" x="792" y="360" width="128" height="64" rx="6"/>
+        <rect class="node-optional" x="792" y="360" width="128" height="64" rx="6"/>
+        <rect class="tag" x="800" y="368" width="56" height="12" rx="2"/>
+        <text class="tag-text" x="828" y="377">OPTIONAL</text>
+        <text class="name" x="856" y="396">Anthropic</text>
+        <text class="sub" x="856" y="412">the Claude API</text>
+
+        <!-- Margin note: who loads media -->
+        <text class="callout" x="40" y="48">your own browser,</text>
+        <text class="callout" x="40" y="66">only when you ask</text>
+        <path class="leader" d="M 100,74 Q 124,96 152,103"/>
+        <circle class="dot" cx="156" cy="104" r="2"/>
+
+        <!-- Margin note: what is sent of a bookmark -->
+        <text class="callout" x="772" y="270">A post's text, language,</text>
+        <text class="callout" x="772" y="288">link card and media</text>
+        <text class="callout" x="772" y="306">descriptions. No id,</text>
+        <text class="callout" x="772" y="324">author, time or address.</text>
+        <path class="leader" d="M 780,334 Q 768,356 768,386"/>
+        <circle class="dot" cx="768" cy="392" r="2"/>
+
+        <!-- Legend: a strip under the diagram -->
+        <line class="hairline" x1="40" y1="532" x2="920" y2="532"/>
+        <text class="legend-title" x="40" y="556">LEGEND</text>
+
+        <rect class="node-focal" x="112" y="546" width="20" height="12" rx="3"/>
+        <text class="legend-text" x="140" y="556">your library</text>
+
+        <rect class="node-external" x="232" y="546" width="20" height="12" rx="3"/>
+        <text class="legend-text" x="260" y="556">third party</text>
+
+        <line class="flow" x1="348" y1="552" x2="372" y2="552" marker-end="url(#arrow)"/>
+        <text class="legend-text" x="380" y="556">by itself</text>
+
+        <line class="flow-optional" x1="452" y1="552" x2="476" y2="552" marker-end="url(#arrow)"/>
+        <text class="legend-text" x="484" y="556">when you ask</text>
+
+        <line class="blocked" x1="596" y1="552" x2="580" y2="552"/>
+        <line class="stop-bar" x1="576" y1="546" x2="576" y2="558"/>
+        <text class="legend-text" x="604" y="556">never</text>
+
+        <rect class="zone" x="656" y="546" width="20" height="12" rx="3"/>
+        <text class="legend-text" x="684" y="556">trust boundary</text>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>

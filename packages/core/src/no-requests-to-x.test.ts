@@ -185,6 +185,8 @@ const MAKES_REQUESTS: Record<string, string> = {
     "Depends on Playwright, which drives the browser the screenshots are taken in.",
   "packages/demo/src/app.ts":
     "Starts this repo's own app as a child process, on 127.0.0.1 and a demo library, and waits for its port to open. It asks no host for anything.",
+  "packages/demo/src/diagram.ts":
+    "Renders docs/architecture/architecture.html, a local file with no web font and no other request in it, in a Chromium started with every hostname unresolvable, to export the README's diagram. A request for anything but a local file is refused and fails the run.",
   "packages/demo/src/screenshots.ts":
     "Drives a Chromium through the demo app to take the README's images. The browser is started with every hostname unresolvable, the app is asked for at 127.0.0.1, and a request to anywhere else is refused and fails the run. The demo library names no host of X's (demo.test.ts).",
   "packages/core/src/no-requests-to-x.test.ts":
