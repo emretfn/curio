@@ -5,7 +5,8 @@ A library of invented posts, so that the app can be seen full before anything of
 ```
 pnpm demo               # build the demo library and start the app on it, at http://127.0.0.1:47131
 pnpm demo --port 47200  # the same, on another port
-pnpm screenshots        # take the README's images again, into docs/screenshots/
+pnpm screenshots        # take the README's screenshots again, into docs/screenshots/
+pnpm diagram            # export the README's architecture diagram again, into docs/architecture/
 ```
 
 `pnpm demo` needs no extension, no pairing, no API key and no network. It can run beside the real app: it keeps its library in `demo-data/` at the repo's root, builds the app into a directory of its own, and listens on its own port. The library is deleted and made again each time the demo starts, so whatever you file, correct or merge in it is yours to break. Stop it with Ctrl+C.
@@ -45,13 +46,24 @@ Everything is placed in time from the moment of the build: the newest post was s
 
 The pages are not parser fixtures. They hold what the parser reads and are no copy of a real response; the fixtures under `packages/core/src/parsers/fixtures` are what the parsers are tested against. The rules are DEMO-1 to DEMO-5 in [CODING_STANDARDS.md](../../CODING_STANDARDS.md).
 
-## The screenshots
+## The screenshots, and the diagram
 
-`pnpm screenshots` builds a demo library in a temporary directory, starts the app on it on a free port, and drives Playwright's Chromium through five screens in the light theme and again in the dark: the library, a search, the label filters with a category menu open, the Tags page, and the weekly digest. Each is 1200 by 800 at twice the density. It needs Playwright's browser once: `pnpm --filter @x-bookmarks/demo exec playwright install chromium`.
+`pnpm screenshots` takes every screenshot in the root README into `docs/screenshots/`, each in the light theme and in the dark, at twice the density:
 
-- `pnpm screenshots --no-build` reuses the app as it was last built into `.next-demo`, and takes about ten seconds. Use it after changing the demo's posts; leave it out after changing the app.
-- `pnpm screenshots --only library` takes one screen.
+- five screens of the app, 1200 by 800: the library, a search, the label filters with a category menu open, the Tags page, and the weekly digest;
+- two states of the extension's popup, at its own width: not paired yet, and paired and up to date.
+
+It builds a demo library and the extension into a temporary directory, starts the app on that library on a free port, and drives Playwright's Chromium with the extension loaded. It needs Playwright's browser once: `pnpm --filter @x-bookmarks/demo exec playwright install chromium`.
+
+- `pnpm screenshots --no-build` reuses the app as it was last built into `.next-demo`, and takes about fifteen seconds. Use it after changing the demo's posts or the extension; leave it out after changing the app.
+- `pnpm screenshots --only library` takes one shot. The names are `library`, `search`, `labels`, `tags`, `digest`, `popup-not-paired` and `popup-paired`.
 - Where `pngquant` is installed the images are made smaller with it; without it they are as the browser wrote them, about twice the size.
 - The dates in the images are the dates of the run, so a run on another day changes every image.
 
-The browser is started with every hostname unresolvable and can reach only this computer, and the run fails if a page asks for anything but the app. Stop `pnpm demo` before running it without `--no-build`: both build into the same directory.
+The browser is told that the app's real address, `127.0.0.1:47130`, leads to this run's app, as the end-to-end test's browser is, so the extension pairs with it as it would with the real one: with the token the app's own `pair` command prints, typed into the popup. Nothing listens on port 47130. No other name resolves, so the browser can reach nothing but this computer, and the run fails if a page asks for anything but the app.
+
+One thing in the popup's second picture is put there by hand. The counts are written into the extension's own storage, to the number of captures the demo library holds: those captures were not taken by this extension, and the script opens no page of X's, real or fake, to take others. The pairing and everything else the popup shows is the extension's own doing.
+
+A build cannot be made while `pnpm demo` is running, because both build into the same directory: stop the demo first, or pass `--no-build`.
+
+`pnpm diagram` exports the architecture diagram from its source, [`docs/architecture/architecture.html`](../../docs/architecture/architecture.html), to a light and a dark PNG beside it. Edit the HTML, run the command. The source is one page for both themes, with the app's own colours and typefaces and no web font.

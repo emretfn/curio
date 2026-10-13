@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 import { contentSecurityPolicy } from "./src/lib/x-media-policy.ts";
 
+// Next reports anonymous usage figures about its own commands to its maker
+// unless it is told not to. This app asks no other host for anything, so it
+// is told not to: here, because a build reads this file before it reads the
+// setting, and whoever runs a build then needs no variable of their own.
+process.env.NEXT_TELEMETRY_DISABLED = "1";
+
 const nextConfig: NextConfig = {
   // The extension's protocol module is TypeScript source with no build of its
   // own, so Next compiles it with the app. Core is deliberately not listed:

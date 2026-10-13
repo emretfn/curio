@@ -194,6 +194,9 @@ importers:
       '@x-bookmarks/core':
         specifier: workspace:*
         version: link:../core
+      '@x-bookmarks/extension':
+        specifier: workspace:*
+        version: link:../extension
     devDependencies:
       playwright:
         specifier: ^1.64.0

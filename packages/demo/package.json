@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@x-bookmarks/core": "workspace:*"
+    "@x-bookmarks/core": "workspace:*",
+    "@x-bookmarks/extension": "workspace:*"
   },
   "devDependencies": {
     "playwright": "^1.64.0"
