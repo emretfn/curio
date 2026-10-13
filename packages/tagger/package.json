@@ -8,6 +8,7 @@
   },
   "scripts": {
     "tag": "node src/cli.ts",
+    "digest": "node src/digest/cli.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

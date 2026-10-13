@@ -1,6 +1,6 @@
 # x-bookmarks tagger
 
-Files each bookmark under one category, one format and a few tags, by asking Claude. It is the only code in this repo that calls Claude, and the only code that sends anything of the library to a third party. It needs an API key, and a run costs money: about $0.00012 a bookmark as first measured, so under twenty cents for a library of 1,400, and a cent or so a week after that.
+Files each bookmark under one category, one format and a few tags, by asking Claude; and, when you ask for it, writes the summary of a week for the weekly digest. It is the only code in this repo that calls Claude, and the only code that sends anything of the library to a third party. It needs an API key, and a run costs money: about $0.00012 a bookmark as first measured, so under twenty cents for a library of 1,400, and a cent or so a week after that. A week's digest is one request more, a few cents: see "The weekly digest" below.
 
 What it files under is not here. The categories and formats are `TAXONOMY` in `packages/core/src/taxonomy.ts`, fixed in that file. The tags are the vocabulary, which you change from the interface and which lives in the database (`packages/core/src/vocabulary.ts`). The instructions the model gets are built from both, as they stand when a run begins.
 
@@ -185,8 +185,68 @@ The first sample, 50 bookmarks sent one at a time, came back whole: 50 classifie
 - that the instructions of version 2 do as well as version 1 did, which the next sample shows;
 - how good the labels are, which is yours to judge.
 
+## The weekly digest
+
+The digest page (`/digest` in the app) shows each week of bookmarks: what was saved, counted by category, format and tag, the posts themselves, and what the classifier's answers suggest about the taxonomy. All of that is read from the library and costs nothing. `pnpm digest` adds the written part: Claude's summary of the week, its themes and which posts are worth going back to. That is one request to the Claude API for a week, it costs money, and nothing starts it but you: not the app, not a capture, not the MCP server.
+
+It lives in this package, under `src/digest/`, because this is the one package that sends anything to Claude. It sends through the same client, `src/anthropic.ts`, to the same one host, with the same key from the same `.env` line.
+
+```
+pnpm digest --dry-run              # what would be sent and what it would cost. No request, no key, no change.
+pnpm digest                        # write the digest of the week that last reached its Sunday evening
+pnpm digest --week 2026-10-05      # write that week's: any day of a week names it
+pnpm digest --week 2026-10-05 --again   # write it again; the earlier one stays on record
+pnpm digest --list                 # the digests written so far and what each cost
+```
+
+`--max-usd <x>` sets the run's spend cap (default 0.50). `--scheduled` records the run as the schedule's.
+
+**Which week.** A week runs Monday to Sunday in this computer's time zone, over each bookmark's bookmark time. With no `--week`, the command takes the week that last reached Sunday 18:00: from Sunday evening that is the week then ending, and on Monday morning it still is.
+
+**What is sent.** The week's bookmarks, in one message: each as exactly what the classifier sends of a bookmark (the table above), cut shorter (1,200 characters of a post's text, 500 of a quoted post's, 300 of any title or description), with a number, its place in that message. No post id, author, time, count or address, not the week's dates, and not how a bookmark is filed. `src/digest/input.ts` calls the classifier's own `classifierInput` and reads no field of a bookmark itself; `classifierInput` refuses a limit above the classifier's. Bookmarks removed on X are left out, and so is one with nothing in it for a model to read. A week of more than 150 is summarised from its most recent 150.
+
+**What comes back, and what is believed of it.** The answer is held by the API to a schema: an overview, themes and posts worth going back to, in which a post can only be one of the request's numbers. `readDigest` checks it again and turns each number into a post id through the run's own list; a number that is not one of the request's points at nothing. Core's `finishDigestRun` then checks every id against the bookmarks the run sent, strips hidden characters, control characters and anything written as an address, and bounds each part. So whatever a post said, the stored digest is plain prose that points only at bookmarks of that week. The page shows it as text and draws each bookmark with the library's own component; the MCP server returns it as quoted material.
+
+**What it costs.** The model is `claude-opus-5-5`, at $4 a million input tokens and $20 a million output tokens as its prices stood on 2026-10-06 (`src/pricing.ts`). The dry run against the library as it stood on 2026-10-13 said, for the three latest weeks: 9 bookmarks, $0.03 to $0.08; 32 bookmarks, $0.05 to $0.13; 37 bookmarks, the heaviest week in three years, $0.06 to $0.16. Those are estimates from the length of the text; no digest had been written when this was. The median week holds 8 bookmarks. A run cannot spend more than its cap: the request goes only if the cap holds at the most it could cost, every byte a token and the answer at its full 8,000 tokens, which for those weeks is $0.21 to $0.30. Where a week does not fit, its oldest bookmarks are left out, and the report and the page say how many.
+
+**What a run guarantees.**
+
+- **Idempotent.** A week that has a digest is not written again without `--again`. A week of fewer than three bookmarks gets none. Neither needs a key or sends anything.
+- **Capped**, as above. An attempt that went out and brought no answer back may have been charged: it is held against the cap at the most it could have cost, and another is made only if the cap still holds. The API being away or busy is tried three times at most.
+- **One at a time.** While a run is open no other starts.
+- **Recorded.** Every run is a row of `digest_runs` (migration 8): the week, the model, the version of the digest's instructions, the bookmarks sent, the tokens the API reported, the cost, the cap, and the text where one was written. A failed run records its reason as a code and what it cost.
+- **Quiet.** What it prints is the week, counts, tokens and money. The digest itself is on the page and in no terminal or log.
+
+The model always thinks, at medium effort. A refusal, an answer cut short and an answer that is no digest each end the run as failed, with their tokens paid for and nothing stored; there is no fallback to another model, which would change the price under the cap.
+
+### On a schedule
+
+`launchd/dev.x-bookmarks.digest.plist` is a launchd job that runs `pnpm digest --scheduled --max-usd 0.50` every Sunday at 21:00. It is a template: nothing here installs it. From the repo's root:
+
+```
+mkdir -p ~/Library/LaunchAgents
+sed -e "s|__NODE__|$(command -v node)|" -e "s|__REPO__|$PWD|g" -e "s|__HOME__|$HOME|g" \
+  packages/tagger/launchd/dev.x-bookmarks.digest.plist > ~/Library/LaunchAgents/dev.x-bookmarks.digest.plist
+plutil -lint ~/Library/LaunchAgents/dev.x-bookmarks.digest.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.x-bookmarks.digest.plist
+```
+
+To remove it:
+
+```
+launchctl bootout gui/$(id -u)/dev.x-bookmarks.digest
+rm ~/Library/LaunchAgents/dev.x-bookmarks.digest.plist
+```
+
+- **What it spends.** At most $0.50 a week, which is its cap; by the estimates above about $0.03 to $0.16, so some $0.15 to $0.70 a month. Nothing in a week that holds fewer than three bookmarks, and nothing twice for one week.
+- **When the Mac is asleep at 21:00** launchd runs the job when it wakes, and the week it writes is still the one that ended. Switched off, that week is skipped; `pnpm digest --week <day>` writes it later.
+- **What it needs.** The key in `.env`, as for `pnpm tag`. Without one the job fails and says so in `~/Library/Logs/x-bookmarks-digest.log`, which holds what the command prints and nothing of a bookmark. The path of `node` is written into the installed file: after changing Node versions with a version manager, install it again.
+- **Not tried from here.** The job was written and checked as a property list, and never loaded. In particular macOS may ask, the first time it fires, whether `node` may read the folder the repo is in.
+
 ## Working on it
 
 `src/anthropic.ts` is the client and the only file that sends; `src/api-key.ts` reads the key from `.env`; `src/input.ts` is what is sent of a bookmark; `src/instructions.ts` the prompt and the schema, built from core's taxonomy and vocabulary; `src/request.ts` the request and the reading of an answer; `src/pricing.ts` the prices, the cap's arithmetic and the estimate; `src/transport.ts` the choice of route; `src/run.ts` a run; `src/automatic.ts` the app's pass; `src/report.ts` what is printed; `src/cli.ts` the command.
 
-`pnpm test packages/tagger` runs everything against the fake. `src/boundary.test.ts` reads the repo's source and fails if a second file imports the SDK, names the API's address or the key's variable, reads a key off an environment, or loads a `.env` file into one. The rules are AI-1 to AI-10 and LAB-1 to LAB-11 in `CODING_STANDARDS.md`. Never run `pnpm tag` without `--dry-run` as part of development or a test: a run spends the owner's money.
+The digest's files mirror those, under `src/digest/`: `input.ts` is what is sent of a week; `instructions.ts` the prompt, the answer's shape, the model and `DIGEST_INSTRUCTIONS_VERSION`; `request.ts` the request and the reading of an answer; `run.ts` the plan and a run; `report.ts` what is printed; `cli.ts` the command. What a digest is in the library, and the week it is of, are core's `src/digests.ts` and `src/weeks.ts`. Change the wording, the answer's shape, the limits or the model and `request.test.ts` fails until the version is raised and the new fingerprint recorded.
+
+`pnpm test packages/tagger` runs everything against the fake. `src/boundary.test.ts` reads the repo's source and fails if a second file imports the SDK, names the API's address or the key's variable, reads a key off an environment, or loads a `.env` file into one; if anything but the digest's own command can start a digest; or if the digest's files read a field of a bookmark beyond its id. The rules are AI-1 to AI-13 and LAB-1 to LAB-11 in `CODING_STANDARDS.md`. Never run `pnpm tag` or `pnpm digest` without `--dry-run` as part of development or a test: a run spends the owner's money.

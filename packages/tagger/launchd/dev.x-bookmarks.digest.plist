@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The weekly digest, on a schedule: every Sunday at 21:00 this computer runs
+  `pnpm digest` for the week then ending. A template, not an installed job:
+  nothing in this repo installs it. The tagger's README has the commands that
+  fill in the three placeholders, install it, and remove it, and says what it
+  spends.
+
+  __NODE__  the absolute path of node 24.12 or later
+  __REPO__  the absolute path of this repo
+  __HOME__  your home directory, for the log
+
+  It spends money each week it writes a digest: at most the cap below, a few
+  cents as a rule. A week that already has its digest, or holds fewer than
+  three bookmarks, costs nothing. Asleep at 21:00, the Mac runs it on waking;
+  switched off, it skips that week, and `pnpm digest` by hand catches up.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.x-bookmarks.digest</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__REPO__/packages/tagger/src/digest/cli.ts</string>
+    <string>--scheduled</string>
+    <string>--max-usd</string>
+    <string>0.50</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>0</integer>
+    <key>Hour</key>
+    <integer>21</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/x-bookmarks-digest.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/x-bookmarks-digest.log</string>
+</dict>
+</plist>

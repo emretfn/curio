@@ -182,7 +182,7 @@ const MAKES_REQUESTS: Record<string, string> = {
   "packages/tagger/package.json":
     "Depends on Anthropic's SDK: the classifier is the one package that calls Claude (AI-1).",
   "packages/tagger/src/anthropic.ts":
-    "The one file that sends anything of the library to a third party: classification requests to the Claude API at api.anthropic.com and nowhere else. Every request passes onlyToClaude, which refuses any other origin, passes the address through assertNotXOwnedUrl, and switches redirects off (AI-2). It requests nothing to add to a post.",
+    "The one file that sends anything of the library to a third party: the classifier's requests and the weekly digest's one, to the Claude API at api.anthropic.com and nowhere else. Every request passes onlyToClaude, which refuses any other origin, passes the address through assertNotXOwnedUrl, and switches redirects off (AI-2). It requests nothing to add to a post.",
   "packages/tagger/src/anthropic.test.ts":
     "Builds the client over the fake API, and watches that the platform's sender is never called when a test tries for the real one.",
   "packages/tagger/src/automatic.test.ts":
@@ -193,6 +193,8 @@ const MAKES_REQUESTS: Record<string, string> = {
     "Reads the classifier's source to pin which file may send, and where. It requests nothing.",
   "packages/tagger/src/cli.test.ts":
     "Starts the classifier's command as a child process, in a temporary data directory with no key, where it can reach nothing.",
+  "packages/tagger/src/digest/cli.test.ts":
+    "Starts the digest's command as a child process, in a temporary data directory with no key, where it can reach nothing: only what sends nothing is run this way.",
   "packages/web/package.json":
     "Depends on the classifier, which the app asks to tag new bookmarks. The app itself sends nothing: the request is the classifier's.",
   "packages/web/src/server/tagging.ts":

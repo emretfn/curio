@@ -1,8 +1,11 @@
 /**
- * What a request costs. The prices are the published ones for the model in
- * `instructions.ts`, in US dollars per million tokens, read from Anthropic's
- * pricing page on 2026-10-13. They are the one place a price is written;
- * when the model or its price changes, change them here.
+ * What a request costs. The prices are the published ones for the model
+ * that classifies (`instructions.ts`) and for the one that writes the
+ * weekly digest (`digest/instructions.ts`), in US dollars per million
+ * tokens. The classifier's were read from Anthropic's pricing page on
+ * 2026-10-13; the digest's from the model table of Anthropic's API
+ * reference as it stood on 2026-10-06. They are the one place a price is
+ * written; when a model or its price changes, change them here.
  *
  * Everything worked out from them is this program's own arithmetic on the
  * token counts the API reports. The invoice is the authority.
@@ -15,7 +18,11 @@ interface Prices {
   /** Input tokens, for a prompt of up to `longPromptTokens`. */
   input: number;
   output: number;
-  /** A prompt longer than this is charged on a higher card. Nothing here comes near it. */
+  /**
+   * A prompt longer than this is charged on a higher card, or, for a model
+   * with no such card published, is longer than this file vouches for.
+   * Nothing here comes near it, and a request that would is refused.
+   */
   longPromptTokens: number;
   /** Multipliers on the input price. */
   cacheRead: number;
@@ -31,6 +38,17 @@ const PRICES: Record<string, Prices> = {
     output: 0.5,
     longPromptTokens: 100_000,
     cacheRead: 0.1,
+    cacheWrite5m: 1.25,
+    cacheWrite1h: 2,
+    batch: 0.5,
+  },
+  // The digest's model. It sends one request a week, uncached and never in
+  // a batch, so of these only `input` and `output` are ever charged.
+  "claude-opus-5-5": {
+    input: 4,
+    output: 20,
+    longPromptTokens: 100_000,
+    cacheRead: 0.05,
     cacheWrite5m: 1.25,
     cacheWrite1h: 2,
     batch: 0.5,
@@ -109,14 +127,16 @@ export interface RequestSize {
  * least one byte of text, so a request has no more input tokens than it has
  * bytes, plus the overhead above; every input token is taken at the dearest
  * rate it can be charged at, which is a cache write where the system prompt
- * is cached; and the output is taken as the whole of `MAX_OUTPUT_TOKENS`.
- * The true cost is several times lower. The spend cap is kept with this
- * figure, which is what makes it a cap and not a hope.
+ * is cached; and the output is taken as the whole of `maxOutputTokens`, the
+ * request's own limit on its answer. The true cost is several times lower.
+ * The spend cap is kept with this figure, which is what makes it a cap and
+ * not a hope.
  */
 export function mostOf(
   size: RequestSize,
   transport: Transport,
   model: string = MODEL,
+  maxOutputTokens: number = MAX_OUTPUT_TOKENS,
 ): number {
   const prices = pricesOf(model);
   const cached = transport === "direct";
@@ -130,7 +150,7 @@ export function mostOf(
     );
   }
   return (
-    ((inputEquivalent * prices.input + MAX_OUTPUT_TOKENS * prices.output) /
+    ((inputEquivalent * prices.input + maxOutputTokens * prices.output) /
       MILLION) *
     (transport === "batch" ? prices.batch : 1)
   );
@@ -143,7 +163,7 @@ export function mostOf(
  * between the two is the estimate's honesty, and the first real run
  * replaces it with what the API counted.
  */
-const CHARACTERS_PER_TOKEN = { few: 3.6, many: 2.4 };
+export const CHARACTERS_PER_TOKEN = { few: 3.6, many: 2.4 };
 /** What the answer and the thinking before it come to, per post, at low effort. */
 const OUTPUT_TOKENS = { few: 60, many: 320 };
 /** How much of the system prompt is read from the cache in a direct run, once it is warm. */

@@ -11,12 +11,15 @@
  * documentation on 2026-10-13; it is not the API, and the first real run
  * is the test this cannot be.
  */
+import type { DigestInput } from "../digest/input.ts";
 import type { ClassifierInput } from "../input.ts";
 
 export const FAKE_KEY = "sk-ant-api03-FAKE0not0a0real0key0000000000000000";
 
 const ORIGIN = "https://api.anthropic.com";
-const MODELS = new Set(["claude-haiku-5-5"]);
+const MODELS = new Set(["claude-haiku-5-5", "claude-opus-5-5"]);
+/** Models that always think: switching it off is a 400. */
+const ALWAYS_THINKING = new Set(["claude-opus-5-5"]);
 /** Every top-level field of a Messages request this fake has a rule for. Another is a 400, as an unknown field is. */
 const REQUEST_FIELDS = new Set([
   "model",
@@ -51,9 +54,17 @@ export interface FakeAnswer {
   proposed_tags: string[];
 }
 
+/** What the model "writes" for a week: a digest in the shape the request asked for. */
+export interface FakeDigest {
+  overview: string;
+  themes: { title: string; summary: string; posts: number[] }[];
+  worth_revisiting: { post: number; why: string }[];
+}
+
 /** How the fake answers one request: an answer, or one of the ways a request comes to nothing. */
 export type FakeReply =
   | FakeAnswer
+  | FakeDigest
   | { refuse: true }
   | { cutShort: true }
   /** Text in place of the JSON, as only a refused or cut-short message could really hold. */
@@ -91,6 +102,8 @@ interface Batch {
 export interface FakeApiOptions {
   /** What the model says of each post. Given the post as the classifier sent it, and how many it has seen. */
   reply?: (input: ClassifierInput, index: number) => FakeReply;
+  /** What the model writes for a week. Given the week's posts as the digest sent them, and how many weeks it has seen. */
+  write?: (input: DigestInput, index: number) => FakeReply;
   /**
    * Throw as an unreachable network does, in place of answering: always, or
    * for the attempts it picks, counted from zero in the order they are made.
@@ -113,6 +126,21 @@ export const DEFAULT_ANSWER: FakeAnswer = {
   tags: ["react"],
   proposed_tags: [],
 };
+
+/** A digest that names the first posts of the message, as a model that read them might. */
+export const defaultDigest = (input: DigestInput): FakeDigest => ({
+  overview: "A week of posts about building things.",
+  themes: [
+    {
+      title: "Building things",
+      summary: "Several posts walk through building and shipping something.",
+      posts: input.posts.slice(0, 2).map(({ n }) => n),
+    },
+  ],
+  worth_revisiting: input.posts
+    .slice(0, 1)
+    .map(({ n }) => ({ post: n, why: "It is a walkthrough to follow." })),
+});
 
 /** Tokens of a text, as this fake counts them: three characters each. */
 const tokens = (text: string) => Math.ceil(text.length / 3);
@@ -197,6 +225,9 @@ function problemWith(body: MessageBody, inBatch: boolean): Response | null {
     if (thinking.budget_tokens !== undefined || thinking.type === "enabled") {
       return invalid("thinking: budget_tokens is not supported for this model");
     }
+    if (thinking.type === "disabled" && ALWAYS_THINKING.has(body.model)) {
+      return invalid("thinking: cannot be disabled for this model");
+    }
   }
   const effort = body.output_config?.effort;
   if (
@@ -224,6 +255,8 @@ function conforms(value: unknown, schema: Record<string, unknown>): boolean {
       return typeof value === "boolean";
     case "string":
       return typeof value === "string";
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value);
     case "array":
       return (
         Array.isArray(value) &&
@@ -259,6 +292,8 @@ export interface FakeApi {
   sent: SentRequest[];
   /** The posts the model was asked about, as the classifier sent them, in order. */
   inputs: ClassifierInput[];
+  /** The weeks the model was asked to write a digest of, as they were sent, in order. */
+  weeks: DigestInput[];
   /** The bodies of the Messages requests, direct and batched alike, in order. */
   messageRequests: MessageBody[];
   options: FakeApiOptions;
@@ -270,6 +305,7 @@ export function fakeApi(options: FakeApiOptions = {}): FakeApi {
     send: (input, init) => answer(input, init),
     sent: [],
     inputs: [],
+    weeks: [],
     messageRequests: [],
     options,
   };
@@ -282,13 +318,23 @@ export function fakeApi(options: FakeApiOptions = {}): FakeApi {
     const problem = problemWith(body, inBatch);
     if (problem !== null) return problem;
     const content = body.messages[0]?.content;
-    const input = JSON.parse(
+    const sent: unknown = JSON.parse(
       typeof content === "string" ? content : "{}",
-    ) as ClassifierInput;
-    const index = api.inputs.length;
-    api.inputs.push(input);
+    );
+    // A week's posts for a digest, or one post for the classifier.
+    const week =
+      typeof sent === "object" && sent !== null && "posts" in sent
+        ? (sent as DigestInput)
+        : null;
+    const input = sent as ClassifierInput;
+    const index = week === null ? api.inputs.length : api.weeks.length;
+    if (week === null) api.inputs.push(input);
+    else api.weeks.push(week);
     api.messageRequests.push(body);
-    const reply = (api.options.reply ?? (() => DEFAULT_ANSWER))(input, index);
+    const reply =
+      week === null
+        ? (api.options.reply ?? (() => DEFAULT_ANSWER))(input, index)
+        : (api.options.write ?? defaultDigest)(week, index);
     if ("status" in reply)
       return error(reply.status, reply.type, "The request failed.");
 

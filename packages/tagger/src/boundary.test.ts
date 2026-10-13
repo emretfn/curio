@@ -197,9 +197,14 @@ test("the key is read from the file, never from an environment, and nothing puts
 
 test("the key's file is read in one place, and nothing loads a .env file into an environment", () => {
   expect(holding(/["']\.env["']/)).toEqual(["packages/tagger/src/api-key.ts"]);
+  // The app's own pass, the classifier's command and the digest's command.
   expect(
     holding(/\breadApiKey\(/).filter((path) => !path.endsWith("api-key.ts")),
-  ).toEqual(["packages/tagger/src/automatic.ts", "packages/tagger/src/cli.ts"]);
+  ).toEqual([
+    "packages/tagger/src/automatic.ts",
+    "packages/tagger/src/cli.ts",
+    "packages/tagger/src/digest/cli.ts",
+  ]);
   // No library and no flag that would export the file's variables.
   expect(holding(/dotenv|loadEnvConfig|loadEnvFile|--env-file/)).toEqual([]);
 });
@@ -241,6 +246,70 @@ test("the classifier is set going by its own command and by the app's tagging mo
       /(?:from|import)\s*\(?\s*(?:\/\*[^*]*\*\/\s*)?["']@x-bookmarks\/tagger["']/,
     ),
   ).toEqual(["packages/web/src/server/tagging.ts"]);
+});
+
+test("the weekly digest is written by its own command and by nothing else: not the app, not the MCP server", () => {
+  // Who can set a request for a digest going, and who can open a run.
+  expect(holding(/\bwriteDigest\(/)).toEqual([
+    "packages/tagger/src/digest/cli.ts",
+    "packages/tagger/src/digest/run.ts",
+  ]);
+  expect(holding(/\bstartDigestRun\(/)).toEqual([
+    "packages/core/src/digests.ts",
+    "packages/tagger/src/digest/run.ts",
+  ]);
+  // The client's long request is asked for in one place.
+  expect(holding(/\bclaude\.write\(/)).toEqual([
+    "packages/tagger/src/digest/run.ts",
+  ]);
+  // Nothing outside this package reaches into it for the digest: the app
+  // shows a digest it reads from the library, and never starts one.
+  expect(
+    holding(
+      /digest\/(?:run|cli|request|input|instructions)(?:\.ts)?["']/,
+      // The package's own manifest names the command's file.
+    ).filter((path) => !path.startsWith("packages/tagger/")),
+  ).toEqual([]);
+  const exported = readFileSync(join(import.meta.dirname, "index.ts"), "utf8");
+  expect(exported).not.toMatch(/digest/i);
+});
+
+test("of a bookmark, the digest sends what the classifier's one function returns, and reads no field itself", () => {
+  const sending = files.filter(
+    ({ path }) =>
+      path.startsWith("packages/tagger/src/digest/") && !isTest(path),
+  );
+
+  expect(sending.map(({ path }) => path).toSorted()).toEqual([
+    "packages/tagger/src/digest/cli.ts",
+    "packages/tagger/src/digest/input.ts",
+    "packages/tagger/src/digest/instructions.ts",
+    "packages/tagger/src/digest/report.ts",
+    "packages/tagger/src/digest/request.ts",
+    "packages/tagger/src/digest/run.ts",
+  ]);
+  // The one field of a bookmark any of them reads is its id, in the run,
+  // which keeps it in the run's own list and sends a number in its place.
+  const fields = sending.flatMap(({ path, source }) =>
+    [...source.matchAll(/\bbookmark\??\.(\w+)/g)].map(
+      ([, field]) => `${path.split("/").at(-1)}: ${field}`,
+    ),
+  );
+  expect([...new Set(fields)]).toEqual(["run.ts: postId"]);
+  const input = readFileSync(
+    join(import.meta.dirname, "digest/input.ts"),
+    "utf8",
+  );
+  expect(input).toMatch(/classifierInput\(bookmark, DIGEST_TEXT_LIMITS\)/);
+  const request = readFileSync(
+    join(import.meta.dirname, "digest/request.ts"),
+    "utf8",
+  );
+  expect(request).toMatch(
+    /messages: \[\{ role: "user", content: digestMessageOf\(input\) \}\],/,
+  );
+  expect(request).not.toMatch(/\bBookmark\b/);
+  expect(request).not.toMatch(/\b(?:tools|metadata|container|mcp_servers)\s*:/);
 });
 
 test("what is sent is built in one file from one type, and the request holds nothing else of a bookmark", () => {

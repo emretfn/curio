@@ -172,15 +172,23 @@ export interface BatchStatus {
   processing: number;
 }
 
-/** The Claude API as the classifier uses it: one message, or a batch of them. */
+/** The Claude API as this package uses it: one message, a batch of them, or one long answer. */
 export interface Claude {
   /** Sends one request and returns the model's message. Throws a `ClaudeFailure`. */
   classify(request: ClaudeRequest): Promise<ClaudeMessage>;
   /**
-   * How many attempts at `classify` went out and got no answer at all: a
-   * timeout, a dropped connection. The API may have worked on each and
-   * charged for it, and nothing says whether it did. A request the API
-   * answered with an error is not among them: an error is not charged.
+   * Sends one request whose answer is long, the weekly digest's, and
+   * returns the model's message. It is given minutes and not a minute, and
+   * it is tried once: an attempt that times out may have been charged, so
+   * whether to try again is the caller's to decide against its spend cap.
+   * Throws a `ClaudeFailure`.
+   */
+  write(request: ClaudeRequest): Promise<ClaudeMessage>;
+  /**
+   * How many attempts at `classify` or `write` went out and got no answer
+   * at all: a timeout, a dropped connection. The API may have worked on
+   * each and charged for it, and nothing says whether it did. A request the
+   * API answered with an error is not among them: an error is not charged.
    */
   lostRequests(): number;
   /**
@@ -212,6 +220,8 @@ const TIMEOUT_MS = 60_000;
 const RETRIES = 4;
 /** How long the submission of a batch may take: it carries every request of the run. */
 const SUBMIT_TIMEOUT_MS = 10 * 60_000;
+/** How long a long answer may take: a week's digest, thought over and written out. */
+const WRITE_TIMEOUT_MS = 5 * 60_000;
 
 /**
  * A client for the Claude API that holds `apiKey` and uses nothing else to
@@ -261,6 +271,13 @@ export function createClaude(options: {
   });
   return {
     classify: (request) => asking(() => client.messages.create(request)),
+    write: (request) =>
+      asking(() =>
+        client.messages.create(request, {
+          maxRetries: 0,
+          timeout: WRITE_TIMEOUT_MS,
+        }),
+      ),
     lostRequests: () => lost,
     submitBatch: (requests) =>
       asking(async () => {

@@ -50,6 +50,27 @@ export const MAX_QUOTED_TEXT_CHARACTERS = 1500;
 /** The most of any title, description or media description that is sent. X's own are shorter. */
 const MAX_PART_CHARACTERS = 500;
 
+/**
+ * How much of each part of a post is sent, in characters. The fields are
+ * the same for everyone who sends a bookmark; only how long each may be is
+ * the sender's to say, and never longer than the classifier's own.
+ */
+export interface TextLimits {
+  /** The post's own text. */
+  text: number;
+  /** The text of the post it quotes. */
+  quotedText: number;
+  /** Any title, description or media description. */
+  part: number;
+}
+
+/** What the classifier sends: the most that is ever sent of a post. */
+export const CLASSIFIER_LIMITS: TextLimits = {
+  text: MAX_TEXT_CHARACTERS,
+  quotedText: MAX_QUOTED_TEXT_CHARACTERS,
+  part: MAX_PART_CHARACTERS,
+};
+
 /** X's codes for "no language found": nothing to tell the classifier. */
 const NO_LANGUAGE = new Set(["und", "zxx", "qme", "qht", "qam", "qst", "art"]);
 
@@ -63,10 +84,12 @@ function cut(text: string, limit: number): { text: string; wasCut: boolean } {
     : { text: points.slice(0, limit).join(""), wasCut: true };
 }
 
-const part = (text: string | null | undefined): string | undefined => {
-  const shown = cut(text ?? "", MAX_PART_CHARACTERS).text;
-  return shown === "" ? undefined : shown;
-};
+const partWithin =
+  (limit: number) =>
+  (text: string | null | undefined): string | undefined => {
+    const shown = cut(text ?? "", limit).text;
+    return shown === "" ? undefined : shown;
+  };
 
 /** `T` with each key that may hold undefined made a key that may be absent. */
 type Present<T> = {
@@ -85,7 +108,12 @@ function present<T extends object>(value: T): Present<T> {
   ) as Present<T>;
 }
 
-function partsOf(post: PostContent, limit: number): PostParts {
+function partsOf(
+  post: PostContent,
+  limit: number,
+  partLimit: number,
+): PostParts {
+  const part = partWithin(partLimit);
   const { text, wasCut } = cut(post.text, limit);
   const card =
     post.card === null
@@ -114,7 +142,7 @@ function partsOf(post: PostContent, limit: number): PostParts {
       post.article === null
         ? undefined
         : present({
-            title: cut(post.article.title, MAX_PART_CHARACTERS).text,
+            title: cut(post.article.title, partLimit).text,
             opening: part(post.article.previewText),
           }),
   });
@@ -122,19 +150,39 @@ function partsOf(post: PostContent, limit: number): PostParts {
 
 function quotedParts(
   quoted: QuotedPost | null,
+  limits: TextLimits,
 ): ClassifierInput["quoted_post"] {
   if (quoted === null) return undefined;
   return quoted.available
-    ? partsOf(quoted, MAX_QUOTED_TEXT_CHARACTERS)
+    ? partsOf(quoted, limits.quotedText, limits.part)
     : { unavailable: true };
 }
 
-/** What the classifier is sent for a bookmark. */
-export function classifierInput(bookmark: Bookmark): ClassifierInput {
+/**
+ * What is sent of a bookmark: to the classifier, and with shorter `limits`
+ * to the writer of the weekly digest. This function is the one place a
+ * bookmark becomes something that leaves this computer, so both send the
+ * same fields and nothing else. A limit above the classifier's is refused.
+ */
+export function classifierInput(
+  bookmark: Bookmark,
+  limits: TextLimits = CLASSIFIER_LIMITS,
+): ClassifierInput {
+  for (const name of ["text", "quotedText", "part"] as const) {
+    if (
+      !Number.isInteger(limits[name]) ||
+      limits[name] < 1 ||
+      limits[name] > CLASSIFIER_LIMITS[name]
+    ) {
+      throw new RangeError(
+        `No more of a post is sent than the classifier sends: ${name} is from 1 to ${CLASSIFIER_LIMITS[name]} characters.`,
+      );
+    }
+  }
   return present({
-    ...partsOf(bookmark, MAX_TEXT_CHARACTERS),
+    ...partsOf(bookmark, limits.text, limits.part),
     is_reply: bookmark.inReplyToPostId === null ? undefined : (true as const),
-    quoted_post: quotedParts(bookmark.quoted),
+    quoted_post: quotedParts(bookmark.quoted, limits),
   });
 }
 
