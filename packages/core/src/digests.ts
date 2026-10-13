@@ -21,6 +21,7 @@ import { connectionOf, type Store } from "./store.ts";
 import type { TokenUsage } from "./tagging.ts";
 import { OTHER_CATEGORY } from "./taxonomy.ts";
 import { type Week, weekFromKey, weekOf } from "./weeks.ts";
+import { isXOwnedHost } from "./x-hosts.ts";
 
 type Connection = ReturnType<typeof connectionOf>;
 
@@ -251,7 +252,7 @@ function runFromRow({ body, ...row }: RunRow): DigestRun {
     startedAt: new Date(row.startedAt),
     finishedAt: row.finishedAt === null ? null : new Date(row.finishedAt),
     postIds: JSON.parse(row.postIds) as string[],
-    text: body === null ? null : (JSON.parse(body) as DigestText),
+    text: body === null ? null : readText(body),
   };
 }
 
@@ -391,31 +392,235 @@ export const DIGEST_LIMITS = {
   why: 600,
 } as const;
 
-/** Anything written as an address: a scheme and what follows it, or a name that opens with "www.". */
-const ADDRESS = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.)\S*/gi;
+/**
+ * What a digest's prose may not hold, and why.
+ *
+ * A digest is a model's words about posts written by strangers, and it is
+ * read twice over: by the owner on a page, and by whatever model asks the
+ * MCP server for it. It points at a bookmark by its id and at nothing else.
+ * An address in it could only have come out of a post, and a post's links
+ * are data, never somewhere to send a reader or a model (X-2, MCP-4): for a
+ * host X owns that is the rule the whole project is built on, and for any
+ * other host it is how a post that gives orders would get a reader to
+ * carry something out of the library.
+ *
+ * So an address is taken out, in whatever form a browser or a model that can
+ * request things would follow it. What makes text an address, as against a
+ * name with a dot in it, is drawn narrowly enough that prose survives:
+ *
+ * - anything with a scheme, `name://`; the schemes that take no slashes;
+ *   `//host`, which a browser completes; and a name that opens with `www.`;
+ * - a host X owns, in any form: alone, with a path, in capitals. This one
+ *   is exact (`isXOwnedHost`), so it needs no path to be sure;
+ * - any other host only where something follows that makes it a place to
+ *   go: a path, a query, a fragment or a port, or a mailbox before it. A
+ *   host alone, "the tool is on example.com", is a name and stays; so does
+ *   a sentence that lost the space after its full stop.
+ *
+ * A dotted name with a path is not a host when it ends as files and
+ * libraries do and no domain does, so "Next.js/React" is prose, or in a
+ * number, as a version does. A name that is both a library and a domain
+ * loses its path here; that is the side to err on.
+ *
+ * Characters that show as nothing, or that turn round the order of what is
+ * shown, go first: they are how an address would be split to pass as two
+ * words, and how a reader would be shown something other than what a model
+ * is given. What no pattern sees: an address spelt out in words.
+ */
+
+/** Unicode's format characters: zero-width spaces and joiners, direction marks and overrides, soft hyphens, byte-order marks. */
+const FORMAT = /\p{Cf}/gu;
+/** Full stops other scripts write, which a browser reads as the dot of a host name. */
+const OTHER_DOTS = /[\u3002\uFF0E\uFF61]/g;
+const LABEL = "[\\p{L}\\p{N}](?:[\\p{L}\\p{N}-]*[\\p{L}\\p{N}])?";
+/** A run of labels with dots between them, where it does not continue one. */
+const HOST = new RegExp(
+  `(?<![\\p{L}\\p{N}.-])${LABEL}(?:\\.${LABEL})+(?![\\p{L}\\p{N}-])`,
+  "gu",
+);
+const SCHEME = /[a-z][a-z0-9+.-]*:\/\//i;
+/** Schemes written without slashes, each with what must follow for it to be one. */
+const BARE_SCHEME =
+  /(?<![\p{L}\p{N}])(?:mailto:\S|javascript:\S|vbscript:\S|data:[a-z]+\/|(?:tel|sms):\+?\d|magnet:\?)/iu;
+const PROTOCOL_RELATIVE =
+  /(?<![\p{L}\p{N}:/])\/\/[\p{L}\p{N}-]+\.[\p{L}\p{N}]/u;
+const WWW = /(?<![\p{L}\p{N}.-])www\.[\p{L}\p{N}]/iu;
+const LOCAL = /(?<![p{L}p{N}.-])localhost(?::\d|\/)/i;
+const IPV4 = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+/** What follows a host when it is somewhere to go: a path, a query, a fragment, a port. */
+const LEADS_ON = /^(?:\/|[?#].|:\d)/u;
+/**
+ * How files and libraries end, and no top-level domain does. A dotted name
+ * that ends this way is not a host, whatever follows it. Endings that are
+ * also a country's domain (`md`, `py`, `rs`, `sh`) are left out on purpose.
+ */
+const NOT_A_DOMAIN = new Set([
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "ts",
+  "tsx",
+  "css",
+  "scss",
+  "html",
+  "htm",
+  "json",
+  "yaml",
+  "yml",
+  "toml",
+  "lock",
+  "txt",
+  "csv",
+  "pdf",
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "svg",
+  "webp",
+  "wasm",
+  "sql",
+  "go",
+  "rb",
+  "php",
+  "java",
+]);
+
+/** Whether a dotted name could be a host: its last label is letters, and not an ending of the list above. */
+function couldBeHost(name: string): boolean {
+  const ending = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
+  return (
+    /^(?:\p{L}{2,}|xn--[a-z0-9-]+)$/u.test(ending) && !NOT_A_DOMAIN.has(ending)
+  );
+}
+
+/** Whether a word, without the punctuation around it, holds an address. */
+function holdsAddress(word: string): boolean {
+  // As a browser would read it: full-width letters, slashes and colons as
+  // the plain ones, and the other scripts' full stops as dots.
+  const text = word.normalize("NFKC").replace(OTHER_DOTS, ".");
+  if (
+    SCHEME.test(text) ||
+    BARE_SCHEME.test(text) ||
+    PROTOCOL_RELATIVE.test(text) ||
+    WWW.test(text) ||
+    LOCAL.test(text)
+  ) {
+    return true;
+  }
+  for (const match of text.matchAll(HOST)) {
+    const name = match[0];
+    if (isXOwnedHost(name)) return true;
+    const mailbox = text[match.index - 1] === "@";
+    const leadsOn = LEADS_ON.test(text.slice(match.index + name.length));
+    if (mailbox && couldBeHost(name)) return true;
+    if (leadsOn && (couldBeHost(name) || IPV4.test(name))) return true;
+  }
+  return false;
+}
+
+const OPENING = /^[([{<"'\u201C\u2018\u00AB]+/u;
+const CLOSING = /[)\]}>"'\u201D\u2019\u00BB.,;:!?]+$/u;
+const OPENS = /[([{<"'“‘«]/u;
+const SENTENCE_MARKS = /[^.,;:!?]/g;
 
 /**
- * A part of a digest as it is stored: without the characters that hide text
- * from a reader, without the control characters a page has no use for,
- * without any address, and no longer than its limit. A digest points at a
- * bookmark by its id and at nothing else: an address in it could only have
- * been copied from a post, and a post's links are data, never somewhere to
- * send a reader or a model (X-2, MCP-4).
+ * Prose with every address taken out, word by word. The punctuation that
+ * closed a removed word stays with the word before it, so that a sentence
+ * that ended in an address still ends.
+ */
+function withoutAddresses(text: string): string {
+  // Words and the white space between them, alternately.
+  const parts = text.split(/(\s+)/u);
+  const out: string[] = [];
+  for (const [index, part] of parts.entries()) {
+    if (index % 2 === 1) {
+      out.push(part);
+      continue;
+    }
+    const opening = OPENING.exec(part)?.[0] ?? "";
+    const closing = CLOSING.exec(part.slice(opening.length))?.[0] ?? "";
+    const word = part.slice(opening.length, part.length - closing.length);
+    if (!holdsAddress(word)) {
+      out.push(part);
+      continue;
+    }
+    // What closed it: all of it where a bracket or a quote in it closes
+    // one opened in an earlier word, and otherwise the sentence's own
+    // marks, the brackets and quotes having gone with the word they were
+    // opened in.
+    const closesEarlier = opening === "" && !OPENS.test(word);
+    const kept = closesEarlier ? closing : closing.replace(SENTENCE_MARKS, "");
+    const before = out.findLastIndex((piece) => piece.trim() !== "");
+    if (before === -1) {
+      // Nothing stands before it for a mark to close.
+      out.length = 0;
+    } else if (kept !== "") {
+      out.length = before + 1;
+      out.push(kept);
+    }
+  }
+  return out.join("");
+}
+
+/**
+ * A model's prose as plain text: without the characters that hide text
+ * from a reader (`visibleText`) or that show as nothing or reorder what is
+ * shown, without control characters, without any address, and with its
+ * runs of spaces closed up. It is what is stored, and what is read back:
+ * cleaning what is already clean changes nothing.
+ */
+function plain(text: string): string {
+  const shown = [
+    ...visibleText(text)
+      .replace(/\r\n?|[\u2028\u2029]/g, "\n")
+      .replace(/[\t\v\f]/g, " ")
+      .replace(FORMAT, ""),
+  ]
+    .filter((character) => {
+      const code = character.codePointAt(0) ?? 0;
+      return code === 0x0a || (code >= 0x20 && code !== 0x7f);
+    })
+    .join("");
+  return withoutAddresses(shown)
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+}
+
+/**
+ * A part of a digest as it is stored: plain, as above, not empty, and no
+ * longer than its limit.
  */
 function stored(text: unknown, limit: number, name: string): string {
   if (typeof text !== "string") {
     throw new RangeError(`A digest's ${name} is text.`);
   }
-  const clean = [...visibleText(text).replace(ADDRESS, "")]
-    .filter((character) => {
-      const code = character.codePointAt(0) ?? 0;
-      return code === 0x0a || (code >= 0x20 && code !== 0x7f);
-    })
-    .join("")
-    .replace(/[ \t]{2,}/g, " ")
-    .trim();
+  const clean = plain(text);
   if (clean === "") throw new RangeError(`A digest's ${name} is not empty.`);
-  return [...clean].slice(0, limit).join("");
+  return [...clean].slice(0, limit).join("").trimEnd();
+}
+
+/**
+ * A stored digest as it is handed to a reader. Its prose is cleaned again
+ * on the way out, so that what a page or a model is given does not depend
+ * on which version of this code stored the row.
+ */
+function readText(body: string): DigestText {
+  const text = JSON.parse(body) as DigestText;
+  return {
+    overview: plain(String(text.overview ?? "")),
+    themes: (text.themes ?? []).map((theme) => ({
+      title: plain(String(theme.title ?? "")),
+      summary: plain(String(theme.summary ?? "")),
+      postIds: theme.postIds ?? [],
+    })),
+    worthRevisiting: (text.worthRevisiting ?? []).map(({ postId, why }) => ({
+      postId,
+      why: plain(String(why ?? "")),
+    })),
+  };
 }
 
 /**
