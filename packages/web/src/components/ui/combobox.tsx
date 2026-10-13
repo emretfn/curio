@@ -11,6 +11,7 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@/components/ui/input-group";
+import { popupPadding } from "@/lib/popup-padding";
 
 const Combobox = ComboboxPrimitive.Root;
 
@@ -96,9 +97,12 @@ function ComboboxContent({
     ComboboxPrimitive.Positioner.Props,
     "side" | "align" | "sideOffset" | "alignOffset" | "anchor"
   >) {
+  // Read as the list opens: the content is only drawn then.
+  const padding = React.useMemo(popupPadding, []);
   return (
     <ComboboxPrimitive.Portal>
       <ComboboxPrimitive.Positioner
+        collisionPadding={padding}
         side={side}
         sideOffset={sideOffset}
         align={align}

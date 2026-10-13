@@ -4,6 +4,7 @@ import {
   listTagProposals,
   listTags,
   resolveTag,
+  retireTag,
   type Store,
   summariseTagging,
 } from "@x-bookmarks/core";
@@ -330,8 +331,59 @@ test("core's refusals are reworded for a screen without losing what they say", (
       '"x" is a tag that was retired, or a name for one. Bring it back with addTag and merge the two, or choose another name.',
     ),
   ).toBe(
-    "“x” is a tag that was retired, or a name for one. Bring it back and merge the two, or choose another name.",
+    "“x” is a tag that was retired, or a name for one. Restore it and merge the two, or choose another name.",
   );
+});
+
+test("a proposal is not accepted under a name the owner retired: the screen is told to restore the tag, and nothing changes", async () => {
+  const library = setUp();
+  retireTag(library.store, "nextjs");
+  const before = standing(library);
+
+  // As the tag itself: accepting would bring it back wherever it was retired.
+  const under = await library.send("accept-proposal", {
+    proposal: "server-actions",
+    as: "nextjs",
+  });
+  expect(under.status).toBe(422);
+  expect(under.answer.error).toBe(
+    "“nextjs” is a tag that was retired, or a name for one. Accepting a proposal under it would bring the tag back on every bookmark it was retired from. Restore it first, or choose another name.",
+  );
+
+  // As another way of writing a tag there is, among the names ticked as the
+  // same subject.
+  const beside = await library.send("accept-proposal", {
+    proposal: "server-actions",
+    as: "react",
+    variants: ["nextjs"],
+  });
+  expect(beside.status).toBe(422);
+  expect(beside.answer.error).toBe(
+    "“nextjs” is a tag that was retired, or a name for one, so it cannot be another way of writing “react”.",
+  );
+
+  // And a name being renamed to it, which was refused before as well.
+  const renamed = await library.send("rename-tag", {
+    tag: "react",
+    to: "nextjs",
+  });
+  expect(renamed.status).toBe(422);
+  expect(renamed.answer.error).toMatch(/Restore it and merge the two/);
+
+  expect(standing(library)).toBe(before);
+  expect(library.afterTagAdded).not.toHaveBeenCalled();
+  // Restored, as the refusal says, the name can be taken.
+  expect((await library.send("restore-tag", { tag: "nextjs" })).status).toBe(
+    200,
+  );
+  expect(
+    (
+      await library.send("accept-proposal", {
+        proposal: "server-actions",
+        as: "nextjs",
+      })
+    ).status,
+  ).toBe(200);
 });
 
 test("an accepted proposal becomes a tag on the bookmarks it was proposed for, and the app is told a tag was added", async () => {

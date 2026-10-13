@@ -62,6 +62,7 @@ import {
   type RawCapture,
   recordClassification,
   resolveTag,
+  retireTag,
   type Store,
   searchBookmarks,
   startDigestRun,
@@ -4175,6 +4176,41 @@ test("the vocabulary is kept on the Tags page: a tag is added, renamed, given an
   assert.ok(labelsOf(tagged).tags.includes("e2e-two"));
   await row("e2e-two").waitFor();
 
+  // A screen that is behind the library. The tag is retired somewhere else
+  // after this page was read, so the page still offers it as the tag a
+  // proposal could be another way of writing. The app refuses, the notice
+  // says what to do about it, and the page is read again: the tag is among
+  // the retired ones, where the button the notice names is.
+  const [waiting] = listTagProposals(from, { minBookmarks: 1 }).proposals;
+  assert.ok(waiting, "a proposal is still waiting to be decided");
+  await page.goto(`${APP_ORIGIN}/tags?least=1`);
+  const undecided = page.locator(`[data-proposal="${waiting.proposal}"]`);
+  await undecided.waitFor();
+  await row("e2e-two").waitFor();
+  retireTag(from, "e2e-two");
+  await pickTag(
+    page,
+    undecided.getByText(/^Alias of (?:a|another) tag$/),
+    "e2e-two",
+  );
+  await said("Nothing was changed");
+  await said(
+    "“e2e-two” is a tag that was retired, or a name for one. Accepting a proposal under it would bring the tag back on every bookmark it was retired from. Restore it first, or choose another name.",
+  );
+  assert.equal(resolveTag(from, waiting.proposal), undefined);
+  assert.equal(resolveTag(from, "e2e-two"), undefined);
+  await row("e2e-two").waitFor({ state: "detached" });
+  await undecided.waitFor();
+  // The notice stays until it is closed, over the corner of the page.
+  await page.locator('[aria-label="Close this notice"]').last().click();
+  await page.getByText("1 retired tag").click();
+  await page
+    .locator('[data-retired-tag="e2e-two"]')
+    .getByRole("button", { name: "Restore" })
+    .click();
+  await row("e2e-two").waitFor();
+  assert.ok(labelsOf(tagged).tags.includes("e2e-two"));
+
   // A tag was added, more than once, and the app asked for a pass each
   // time. No pass and no click here ran the classifier or spent anything.
   assert.deepEqual(listTaggingRuns(from), []);
@@ -4504,11 +4540,10 @@ test("a list being corrected stays the reader's: its rows and an open tag list s
   // A post taller than the window: the key that opens its category brings
   // the line it is on into view first, so the menu opens where it can be
   // seen, clear of the bar at the top.
-  const viewport = 400;
-  const long = await openLibrary("/?has=long", {
-    width: 1280,
-    height: viewport,
-  });
+  const long = await openLibrary("/?has=long", { width: 1280, height: 400 });
+  // As tall as the window turned out: a browser has a least height of its
+  // own, and what was asked for is below it.
+  const viewport = await long.evaluate(() => window.innerHeight);
   // By its id: the list draws only the rows near the screen, so "the first
   // post that can be opened" is another post once the page has moved.
   const tallId = await long
@@ -4533,42 +4568,57 @@ test("a list being corrected stays the reader's: its rows and an open tag list s
     ((await control.boundingBox())?.y ?? 0) > viewport,
     "its labels are below the screen",
   );
-  const measured = (id: string | null) =>
-    long.evaluate((postId) => {
-      const post = document.querySelector(`[data-post-id="${postId}"]`);
-      const edit = post?.querySelector('[data-edit="category"]');
-      return {
-        scrolled: Math.round(window.scrollY),
-        most: document.documentElement.scrollHeight - window.innerHeight,
-        post: Math.round(post?.getBoundingClientRect().top ?? -1),
-        tall: Math.round(post?.getBoundingClientRect().height ?? -1),
-        control: Math.round(edit?.getBoundingClientRect().top ?? -1),
-        rows: [...document.querySelectorAll("[data-row]")].map(
-          (row) =>
-            `${row.getAttribute("data-index")}:${Math.round(row.getBoundingClientRect().top)}+${Math.round(row.getBoundingClientRect().height)}`,
-        ),
-        menu: document.querySelector('[role="menu"]') !== null,
-        overflow: getComputedStyle(document.documentElement).overflow,
-      };
-    }, id);
-  const trace: unknown[] = [await measured(tallId)];
-  await long.keyboard.press("c");
-  for (let frame = 0; frame < 8; frame += 1) {
-    trace.push(await measured(tallId));
-    await sleep(40);
-  }
-  await long.getByRole("menu").waitFor();
-  await drawn(long);
-  const where = JSON.stringify(trace);
-  assert.equal(
-    await onScreen(),
-    true,
-    `the control the menu hangs from is on screen: ${where}`,
+  // The page keeps a band clear at its top for the bar, and a browser holds
+  // to it for whatever takes the keyboard. A menu laid over that band had
+  // the page scroll under it as it opened, so it is placed below the band.
+  const band = await long.evaluate(() =>
+    Number.parseFloat(
+      getComputedStyle(document.documentElement).scrollPaddingTop,
+    ),
   );
-  const opened = await long.getByRole("menu").boundingBox();
-  assert.ok(
-    opened !== null && opened.y < viewport && opened.y + opened.height > 0,
-  );
+  assert.ok(band > 0, "the page keeps a band clear at its top");
+  const placed = async (popup: Locator) => {
+    const box = await popup.boundingBox();
+    assert.ok(box);
+    return { top: Math.round(box.y), bottom: Math.round(box.y + box.height) };
+  };
+  const opensOnScreen = async (key: string, popup: Locator) => {
+    await long.keyboard.press(key);
+    await popup.waitFor();
+    await waitFor("what opened to take the keyboard", () =>
+      long.evaluate(
+        () =>
+          document.activeElement?.closest("[data-post]") === null &&
+          document.activeElement !== document.body,
+      ),
+    );
+    await drawn(long);
+    const where = JSON.stringify({
+      control: await control.boundingBox(),
+      popup: await placed(popup),
+      viewport,
+      band,
+    });
+    assert.equal(
+      await onScreen(),
+      true,
+      `${key}: the line the control is on is on screen: ${where}`,
+    );
+    const { top, bottom } = await placed(popup);
+    assert.ok(
+      top >= band && bottom <= viewport,
+      `${key}: what opened is on screen, below the band: ${where}`,
+    );
+    await long.keyboard.press("Escape");
+    await waitFor(
+      "the keyboard to be back on the post",
+      async () =>
+        (await popup.count()) === 0 && (await focusedPostId(long)) === tallId,
+    );
+  };
+  await opensOnScreen("c", long.getByRole("menu"));
+  // The same for the tag list, whose field takes the keyboard.
+  await opensOnScreen("t", long.locator('[data-slot="combobox-content"]'));
   await long.close();
 });
 

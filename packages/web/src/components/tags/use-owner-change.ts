@@ -2,14 +2,15 @@
 
 /**
  * One change to the vocabulary, made from the Tags screen: sent to the app,
- * then said back in a notice, with the screen read again from the server.
+ * then said back in a notice, with the screen read again from the server,
+ * after a change that was refused as after one that was made.
  * The notice is a toast because the row a change was made on is often gone
  * once it is made: an accepted proposal leaves the list.
  */
 import { useRouter } from "next/navigation";
 import { useCallback, useState, useTransition } from "react";
 import { toast } from "@/components/ui/toast";
-import { failureMessage, ownerWrite } from "@/lib/owner-write";
+import { failureMessage, OwnerWriteError, ownerWrite } from "@/lib/owner-write";
 import type { OwnerAction } from "@/server/owner-writes";
 
 /** How long a notice of something done stays. One of something refused stays until it is closed. */
@@ -47,6 +48,12 @@ export function useOwnerChange(): {
           priority: "high",
           timeout: 0,
         });
+        // What the app refused, this screen offered: it is read again, so
+        // that what it offers is what the library holds now. The notice
+        // stays, and so does anything typed.
+        if (error instanceof OwnerWriteError && error.refused) {
+          startTransition(() => router.refresh());
+        }
         return false;
       } finally {
         setBusy(false);

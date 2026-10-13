@@ -16,9 +16,16 @@ import type {
 
 /** A change the app refused or could not make. Its message is fit to show. */
 export class OwnerWriteError extends Error {
-  constructor(message: string) {
+  /**
+   * Whether the app itself said no, as against the change never reaching
+   * it. A refusal is often the sign of a screen that is behind the library:
+   * the tag it offered was retired since, in another tab.
+   */
+  readonly refused: boolean;
+  constructor(message: string, refused = false) {
     super(message);
     this.name = "OwnerWriteError";
+    this.refused = refused;
   }
 }
 
@@ -51,6 +58,7 @@ export async function ownerWrite(
   if (!response.ok || "error" in answer) {
     throw new OwnerWriteError(
       "error" in answer ? answer.error : `The app answered ${response.status}.`,
+      true,
     );
   }
   return answer;

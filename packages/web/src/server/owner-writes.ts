@@ -368,10 +368,13 @@ export const ownerWritePath = (action: OwnerAction) => `/api/owner/${action}`;
 /**
  * Core's refusals are written for whoever calls its functions, and name
  * them. A screen has no functions: the sentences that only point at one are
- * dropped, and a function's name where it stands for a verb is left out.
+ * dropped, a function's name where it stands for a verb is left out, and
+ * bringing a retired tag back is called what the Tags page calls it, which
+ * is the button the owner is being sent to.
  */
 export function forOwner(message: string): string {
   return message
+    .replace(/\bBring it back with addTag\b/g, "Restore it")
     .replace(/ The tags there are(?: now)? come from listTags\./g, "")
     .replace(/ A tag is retired with retireTag\./g, "")
     .replace(/ with (?:mergeTags|addTag)\b/g, "")
