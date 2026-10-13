@@ -1,6 +1,6 @@
 /**
- * The MCP server over the bookmark library: four tools, all of them reads,
- * each a thin wrapper around one of core's query functions.
+ * The MCP server over the bookmark library: six tools, all of them reads,
+ * each a thin wrapper around core's query functions.
  *
  * Two things here are deliberate and tested:
  *
@@ -17,12 +17,19 @@ import { McpServer } from "@modelcontextprotocol/server";
 import {
   type BookmarkFilter,
   getBookmark,
+  getDigest,
   getVocabulary,
+  latestWeekEnded,
   listBookmarks,
+  listTagProposals,
+  listWithheldPosts,
+  OTHER_CATEGORY,
   type Store,
   searchBookmarks,
   summariseLibrary,
+  summariseWeek,
   TAXONOMY,
+  weekOf,
 } from "@x-bookmarks/core";
 import * as z from "zod/v4";
 import {
@@ -32,6 +39,8 @@ import {
   ROW_TEXT_LENGTH,
   result,
   visible,
+  weekDigest,
+  withheldRow,
 } from "./format.ts";
 
 /** The most rows one call returns. Twenty rows are about three thousand tokens; fifty stay well inside a client's limit. */
@@ -43,7 +52,9 @@ const UNTRUSTED =
 
 const INSTRUCTIONS = `Read-only access to the user's own library of X bookmarks: posts they saved on X, captured into a local database. Use it when the user asks what they saved, bookmarked or read about something.
 
-Start with search_bookmarks for a topic, or list_bookmarks for a period ("what did I save this week"). Both return short rows; get_bookmark returns one bookmark in full. library_overview gives the totals, the languages and the most bookmarked authors, and the current date for working out a period.
+Start with search_bookmarks for a topic, or list_bookmarks for a period ("what did I save this week"). Both return short rows; get_bookmark returns one bookmark in full. library_overview gives the totals, the languages and the most bookmarked authors, and the current date for working out a period. get_digest is one week at a glance: what was saved in it by category, format and tag, what the classifier's answers suggest about the taxonomy, and the written summary of the week when the user has had one written. Writing one costs the user money and is theirs to start; this server only reads it.
+
+A bookmark stays in the library when X stops sending its post, because the post was deleted or its author's account is protected or suspended: its row then carries withheld_on_x_at, and what the library holds is the copy captured before. list_withheld_posts lists those, and the bookmarks X withheld before the library ever captured them, of which only the id is known.
 
 Search matches words, not meaning: when a first search finds little, search again with other words for the same thing, or pass several with match "any". The library holds posts in more than one language, which library_overview lists; search in the language the post would be in. Accents, capitals and the Turkish dotless i do not matter.
 
@@ -121,6 +132,12 @@ const filterShape = {
     .describe(
       "Also return bookmarks the user has since removed on X. They stay in the library and are left out unless this is true.",
     ),
+  only_withheld: z
+    .boolean()
+    .optional()
+    .describe(
+      "true: only bookmarks whose post X no longer sends (deleted, or from a protected or suspended account), of which the library keeps the copy it captured earlier.",
+    ),
   limit: z
     .number()
     .int()
@@ -196,9 +213,37 @@ function filterOf(input: FilterInput): BookmarkFilter & {
     bookmarkedSince: timeOf(input.bookmarked_since, "bookmarked_since"),
     bookmarkedBefore: timeOf(input.bookmarked_before, "bookmarked_before"),
     includeRemoved: input.include_removed,
+    onlyWithheld: input.only_withheld === true ? true : undefined,
     limit: input.limit ?? DEFAULT_ROWS,
     offset: input.offset ?? 0,
   };
+}
+
+/** How many of each list a digest carries: enough to act on, and bounded like every result. */
+const DIGEST_FITTED_NO_CATEGORY = 20;
+const DIGEST_PROPOSALS = 20;
+/** A proposal is listed once it was made for this many bookmarks: the ones that have piled up. */
+const DIGEST_PROPOSAL_THRESHOLD = 2;
+
+/**
+ * The week a tool was asked for: the one a day falls in, or, with no day,
+ * the one that last reached its Sunday evening.
+ */
+function weekAsked(day: string | undefined, now: Date) {
+  if (day === undefined) return latestWeekEnded(now);
+  const [, year, month, date] = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day) ?? [];
+  const at = new Date(Number(year), Number(month) - 1, Number(date));
+  if (
+    year === undefined ||
+    Number.isNaN(at.getTime()) ||
+    at.getMonth() !== Number(month) - 1 ||
+    at.getDate() !== Number(date)
+  ) {
+    throw new InvalidInput(
+      "week is not a day this tool reads. Give any day of the week as YYYY-MM-DD.",
+    );
+  }
+  return weekOf(at);
 }
 
 /** The counts that say where a page sits in the whole, and where the next one starts. */
@@ -390,6 +435,19 @@ export function createServer(library: () => Store): McpServer {
             with_links: summary.withLinks,
             authors: summary.authors,
             languages: summary.languages,
+            // Posts X no longer sends. Those kept are bookmarks like any
+            // other, with the copy captured earlier; of the rest only the
+            // id is known. list_withheld_posts lists both.
+            withheld_on_x: {
+              kept_in_library: listWithheldPosts(store, {
+                bookmarked: true,
+                limit: 1,
+              }).total,
+              never_captured: listWithheldPosts(store, {
+                bookmarked: false,
+                limit: 1,
+              }).total,
+            },
           },
           // The library's own words: ids to filter by, and what each means.
           taxonomy: {
@@ -425,6 +483,86 @@ export function createServer(library: () => Store): McpServer {
               bookmarks: author.bookmarks,
             })),
           },
+        });
+      }),
+  );
+
+  server.registerTool(
+    "get_digest",
+    {
+      title: "A week's digest",
+      description: `One week of the user's bookmarks at a glance: how many were saved and how they are filed, by category, format and tag; what the classifier's answers suggest about the taxonomy (bookmarks that said enough and fitted no category, and tags it proposed that the vocabulary does not hold); and the written summary of the week, its themes and what is worth going back to, when the user has had one written. With no week it is the week that last reached its Sunday evening. Weeks run Monday to Sunday in this computer's time zone. ${UNTRUSTED}`,
+      inputSchema: z.object({
+        week: z
+          .string()
+          .optional()
+          .describe(
+            "Any day of the week wanted, as YYYY-MM-DD. Left out: the latest week that has reached its Sunday evening.",
+          ),
+      }),
+      annotations: READ_ONLY,
+    },
+    async ({ week: day }) =>
+      answer((store) => {
+        const now = new Date();
+        const week = weekAsked(day, now);
+        const unfitted = {
+          category: OTHER_CATEGORY,
+          tooLittleText: false,
+        } as const;
+        return result({
+          digest: weekDigest({
+            week,
+            now,
+            summary: summariseWeek(store, week),
+            fittedNoCategory: {
+              ids: listBookmarks(store, {
+                ...unfitted,
+                bookmarkedSince: week.start,
+                bookmarkedBefore: week.end,
+                limit: DIGEST_FITTED_NO_CATEGORY,
+              }).bookmarks.map(({ postId }) => postId),
+              inLibrary: listBookmarks(store, { ...unfitted, limit: 1 }).total,
+            },
+            proposals: listTagProposals(store, {
+              minBookmarks: DIGEST_PROPOSAL_THRESHOLD,
+              limit: DIGEST_PROPOSALS,
+            }),
+            written: getDigest(store, week.key),
+          }),
+        });
+      }),
+  );
+
+  server.registerTool(
+    "list_withheld_posts",
+    {
+      title: "Posts X no longer sends",
+      description: `The user's bookmarks whose post X now withholds: the post was deleted, or its author's account is protected or suspended. Most recently found withheld first. One the library captured before that is still a bookmark, and get_bookmark returns the copy it holds; of one it never captured only the id is known, and nothing can be read of it. This tool returns ids and times only. ${UNTRUSTED}`,
+      inputSchema: z.object({
+        in_library: z
+          .boolean()
+          .optional()
+          .describe(
+            "true: only those the library holds a copy of. false: only those it never captured. Left out: both.",
+          ),
+        limit: filterShape.limit,
+        offset: filterShape.offset,
+      }),
+      annotations: READ_ONLY,
+    },
+    async ({ in_library, limit, offset }) =>
+      answer((store) => {
+        const page = { limit: limit ?? DEFAULT_ROWS, offset: offset ?? 0 };
+        const listed = listWithheldPosts(store, {
+          ...page,
+          bookmarked: in_library,
+        });
+        return result({
+          ...paging(listed.total, page.offset, listed.posts.length),
+          about:
+            "Each is still in the user's bookmarks on X, which no longer sends the post. For one with in_library true, get_bookmark returns the copy captured earlier. The rest cannot be read, here or anywhere: do not look for them.",
+          withheld_posts: listed.posts.map(withheldRow),
         });
       }),
   );

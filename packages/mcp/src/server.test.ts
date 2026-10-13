@@ -73,6 +73,9 @@ test("of core it takes the functions that read, and no function that writes", ()
   expect([...taken].toSorted()).toEqual([
     "Bookmark",
     "BookmarkFilter",
+    // The id of the category "other", a constant: what a week's bookmarks
+    // that fitted no category are asked for by.
+    "OTHER_CATEGORY",
     "PostContent",
     "QuotedPost",
     "Store",
@@ -80,16 +83,36 @@ test("of core it takes the functions that read, and no function that writes", ()
     // categories and formats, to describe the filters with and to set out
     // in the overview.
     "TAXONOMY",
+    "TagProposalList",
+    "Week",
+    "WeekSummary",
+    "WithheldPost",
+    "WrittenDigest",
     "excerpt",
     "getBookmark",
+    // Reads the digest written for a week, if one was. The server has no
+    // function that writes one, and nothing that could: that is the
+    // tagger's, which it does not load.
+    "getDigest",
     // Reads the tag vocabulary, which the user changes and the library holds.
     "getVocabulary",
+    // A week's last day, and the week that last ended: arithmetic on dates.
+    "lastDayOf",
+    "latestWeekEnded",
     "listBookmarks",
+    // Reads the tags the classifier proposed, grouped and counted. It
+    // decides nothing about them: accepting and dismissing are not taken.
+    "listTagProposals",
+    // Reads which posts X withholds, by id.
+    "listWithheldPosts",
     "openStore",
     "searchBookmarks",
     "summariseLibrary",
+    // Counts a week's bookmarks by what they are filed under.
+    "summariseWeek",
     // Drops characters that hide text from a reader. A function of text alone.
     "visibleText",
+    "weekOf",
   ]);
 });
 

@@ -11,13 +11,19 @@ It needs the library to exist: run the app once (`pnpm app`) so the database is 
 | `search_bookmarks` | Keyword search over the post's text, its author, the post it quotes, and the titles of its link card and article. Best match first. Takes the filters below, and `match: "any"` to try several words for one idea at once. |
 | `list_bookmarks` | Bookmarks in the order they were bookmarked, newest first or oldest first, optionally within a period. "What did I save this week" is this; with a category, a format or tags it browses a subject. |
 | `get_bookmark` | One bookmark in full by its id: the whole text of a long post, the quoted post, links, the link card, media descriptions, counts, what it is filed under and which of that you set yourself. |
-| `library_overview` | Totals, the period covered, languages, the most bookmarked authors, the taxonomy with what each category and format means and how many bookmarks each category, format and tag has, and the current date and time zone. |
+| `library_overview` | Totals, the period covered, languages, the most bookmarked authors, how many posts X now withholds, the taxonomy with what each category and format means and how many bookmarks each category, format and tag has, and the current date and time zone. |
+| `get_digest` | One week at a glance: how many bookmarks were saved and how they are filed, what the classifier's answers suggest about the taxonomy, and the written summary of the week when you have had one written. With no week, the one that last reached its Sunday evening. |
+| `list_withheld_posts` | The bookmarks whose post X no longer sends, by id: those the library still holds a copy of, and those it never captured. |
 
-Search and list share their filters: `category`, `format`, `tags`, `classified`, `author`, `has_media`, `has_link`, `language`, `bookmarked_since`, `bookmarked_before`, `include_removed`. They return rows of at most 500 characters of text each, 20 a call by default and 50 at most, with `total` and `next_offset` for the next page. A bookmark removed on X stays in the library and is left out unless `include_removed` is true.
+Search and list share their filters: `category`, `format`, `tags`, `classified`, `author`, `has_media`, `has_link`, `language`, `bookmarked_since`, `bookmarked_before`, `include_removed`, `only_withheld`. They return rows of at most 500 characters of text each, 20 a call by default and 50 at most, with `total` and `next_offset` for the next page. A bookmark removed on X stays in the library and is left out unless `include_removed` is true.
 
 **Category, format and tags.** Each bookmark is filed under one category, one format and a few tags by the classifier (`packages/tagger`), and you can correct any of them; a correction is what the tools then return and filter by. The categories and formats are fixed, `TAXONOMY` in core. The tags are a vocabulary you change from the interface, kept in the database. So that Claude can filter without asking first, the tools' own descriptions list every category and format, and the tags as they stood when the session began; `library_overview` adds what each category and format means, the tags as they stand now, and how many bookmarks each has. `tags` takes several, all of which must hold, and understands a tag's other names, Turkish ones included. A tag the vocabulary does not hold, or one you have retired, is answered with an error that says which. Rows carry `category`, `format` and `tags`; a bookmark that has not been classified carries none, and `classified: false` lists those. The labels are a model's and can be wrong: the server's instructions tell Claude to use them for browsing and to search by words as well. A tag the classifier only proposed is on no bookmark and is not returned.
 
-The server still only reads. It does not classify, does not import the tagger, and has no key; classifying happens in `pnpm tag` and in the app.
+**Withheld on X.** When a post is deleted, or its author's account is protected or suspended, X keeps the bookmark and stops sending the post. A bookmark the library captured before that stays in every list, and its row and its detail carry `withheld_on_x_at`; `only_withheld` lists those alone. `list_withheld_posts` adds the ones the library never captured, of which there is an id and nothing else. The server tells Claude not to go looking for them: nothing asks X for anything.
+
+**The weekly digest.** `get_digest` takes any day of a week (`week: "2026-10-07"`) and returns that week, Monday to Sunday in this computer's time zone: `saved`, the counts by category, format and tag; `taxonomy_suggestions`, the week's bookmarks that said enough and fitted no category, by id, and the tags the classifier has proposed for two bookmarks or more; and `written`, the summary Claude wrote of the week, with the ids of the bookmarks each theme is about. `written` is null until you run `pnpm digest`, and the tool says so and how: the server cannot write one, because writing one calls the Claude API and spends your money. A written summary is a model's prose about strangers' posts, so it goes out as posts do: as strings in the one JSON document, under the notice, through the same filter for hidden characters, and it names bookmarks by id only. A proposed tag appears here by name and on no bookmark.
+
+The server still only reads. It does not classify or write a digest, does not import the tagger, and has no key; classifying happens in `pnpm tag` and in the app, and a digest is written by `pnpm digest`.
 
 Search is by word, not by meaning. Case, accents and the Turkish dotless i make no difference; a word of three letters or more also finds its longer forms. How it ranks is in `packages/core/src/library.ts`.
 
@@ -40,7 +46,7 @@ The repo's `.mcp.json` already registers it for this project.
 
 1. Start `claude` in the repo's root directory.
 2. Claude Code asks once whether to use the project's MCP server `x-bookmarks`. Approve it.
-3. Check with `/mcp`: `x-bookmarks` should be connected, with four tools. Then ask, for example, "what did I bookmark about SQLite?".
+3. Check with `/mcp`: `x-bookmarks` should be connected, with six tools. Then ask, for example, "what did I bookmark about SQLite?".
 
 To have it in every project and not only this one, add it once for your user, with the absolute path to this repo:
 
@@ -74,7 +80,7 @@ Claude Desktop does not read your shell's settings, so both paths must be absolu
    }
    ```
 4. Quit Claude Desktop completely and open it again.
-5. In a new chat, click the "+" ("Add files, connectors, and more") below the message box, then **Connectors**: `x-bookmarks` should be listed, with four tools under **Manage connectors**.
+5. In a new chat, click the "+" ("Add files, connectors, and more") below the message box, then **Connectors**: `x-bookmarks` should be listed, with six tools under **Manage connectors**.
 
 ## Settings
 
