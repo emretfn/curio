@@ -280,8 +280,8 @@ test("a suggestion that is another way of writing a tag becomes that tag, and on
   });
 });
 
-test("proposals are capped for a bookmark, and an alias never takes a bookmark past its tags", () => {
-  const store = library();
+test("an answer holds a few tags and a couple of proposals, and a proposal that is a tag's other name becomes that tag beside them", () => {
+  const store = library(2);
 
   recordClassification(
     store,
@@ -290,9 +290,80 @@ test("proposals are capped for a bookmark, and an alias never takes a bookmark p
       proposedTags: ["shadcn", "one", "two", "three"],
     }),
   );
+  // The same answer where the owner names the alias only afterwards.
+  recordClassification(
+    store,
+    answer(2, {
+      tags: ["react", "nextjs", "tailwind", "auth"],
+      proposedTags: ["zustand-store", "one", "two"],
+    }),
+  );
+  addTag(store, "zustand", { aliases: ["zustand-store"] });
 
-  expect(labels(store).tags).toEqual(["auth", "nextjs", "react", "tailwind"]);
+  // The limit is on the answer's own tags; what the owner has called
+  // another name for a tag is that tag, whichever came first.
+  expect(labels(store).tags).toEqual([
+    "auth",
+    "nextjs",
+    "react",
+    "shadcn-ui",
+    "tailwind",
+  ]);
   expect(labels(store).classification?.proposedTags).toEqual(["one", "two"]);
+  expect(labels(store, 2).tags).toEqual([
+    "auth",
+    "nextjs",
+    "react",
+    "tailwind",
+    "zustand",
+  ]);
+  expect(() =>
+    recordClassification(
+      store,
+      answer(1, { tags: ["react", "nextjs", "tailwind", "auth", "seo"] }),
+    ),
+  ).toThrow(/An answer of the classifier holds at most 4 tags; got 5/);
+});
+
+test("a tag the owner added since reaches a bookmark that already has as many tags as one answer holds", () => {
+  const store = library();
+  recordClassification(
+    store,
+    answer(1, { tags: ["react", "nextjs", "tailwind", "auth"] }),
+  );
+  addTag(store, "drizzle");
+
+  expect(
+    recordNewTags(store, { postId: postId(1), tags: ["drizzle", "react"] }),
+  ).toEqual(["drizzle"]);
+  expect(labels(store).tags).toEqual([
+    "auth",
+    "drizzle",
+    "nextjs",
+    "react",
+    "tailwind",
+  ]);
+});
+
+test("a bookmark that could not be asked about new tags is marked as asked and left exactly as it is", () => {
+  const store = library();
+  recordClassification(
+    store,
+    answer(1, { tags: ["react"], proposedTags: ["one"] }),
+  );
+  correctBookmark(store, postId(1), { category: "design" });
+  addTag(store, "drizzle");
+  const stood = labels(store);
+
+  expect(recordNewTags(store, { postId: postId(1), tags: [] })).toEqual([]);
+
+  expect(labels(store)).toEqual({
+    ...stood,
+    classification: {
+      ...stood.classification,
+      vocabularyVersion: getVocabulary(store).version,
+    },
+  });
 });
 
 test("the owner's category, format and tags are read before the classifier's", () => {

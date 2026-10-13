@@ -7,6 +7,7 @@ import { migration as searchIndex } from "./0005-search-index.ts";
 import { migration as labels } from "./0006-labels.ts";
 import { migration as vocabulary } from "./0007-vocabulary.ts";
 import { migration as digests } from "./0008-digests.ts";
+import { migration as taggingRunAccounts } from "./0009-tagging-run-accounts.ts";
 
 /** Every migration, in the order it is applied. Append only. */
 export const migrations: readonly Migration[] = [
@@ -18,4 +19,5 @@ export const migrations: readonly Migration[] = [
   labels,
   vocabulary,
   digests,
+  taggingRunAccounts,
 ];

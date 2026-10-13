@@ -124,7 +124,8 @@ test("a run recorded before the migration is kept as it was, one run is still op
       .run(classified, classified, mode);
 
   expect(db.prepare("SELECT * FROM tagging_runs").all()).toEqual([
-    { ...run, vocabulary_version: 1 },
+    // The last two came with migration 9.
+    { ...run, vocabulary_version: 1, held_usd: 0, filed_without_request: 0 },
   ]);
   expect(() => open("anything-else")).toThrow(/CHECK/);
   expect(() => open("new-tags")).not.toThrow();

@@ -497,3 +497,142 @@ test("a week's name in a stored run is the name of a week, whatever wrote the ro
   expect(() => insert("last week")).toThrow(/CHECK/);
   expect(weekFromKey(WEEK.key)).toEqual(WEEK);
 });
+
+/** What a digest's overview is stored as, in a library of one week. */
+function storedAs(overview: string): string {
+  const lib = weekOfThree();
+  const run = startDigestRun(lib.store, newRun());
+  return (
+    finishDigestRun(lib.store, run.id, written({ text: { ...TEXT, overview } }))
+      .text?.overview ?? ""
+  );
+}
+
+test("an address written without a scheme is no more stored than one with: a host X owns in any form, and any host with a path", () => {
+  for (const [written_, kept] of [
+    // Hosts X owns, bare, with a path, in capitals, with a trailing dot.
+    ["Seen at t.co/AbC123 today.", "Seen at today."],
+    ["Seen at T.CO today.", "Seen at today."],
+    [
+      "The picture pbs.twimg.com/media/abc.jpg shows it.",
+      "The picture shows it.",
+    ],
+    ["From x.com/someone/status/1975000000000000001 on.", "From on."],
+    ["Via mobile.twitter.com, as before.", "Via, as before."],
+    ["It ends with video.twimg.com.", "It ends with."],
+    // Any host with a path, a query, a fragment or a port; and what a
+    // browser reads as one though it is written otherwise.
+    ["Go to evil.example/collect?d=1 now.", "Go to now."],
+    ["Go to evil.example?d=1 now.", "Go to now."],
+    ["Go to evil.example:8080 now.", "Go to now."],
+    ["Go to evil.example/ now.", "Go to now."],
+    ["Go to //evil.example/collect now.", "Go to now."],
+    ["Go to 203.0.113.7/collect now.", "Go to now."],
+    ["Go to localhost:3000/api now.", "Go to now."],
+    ["Go to evil。example/collect now.", "Go to now."],
+    ["Go to ｅｖｉｌ.example／collect now.", "Go to now."],
+    // Addresses that are not the web's.
+    ["Write to mailto:someone@mail.example now.", "Write to now."],
+    ["Write to someone@mail.example now.", "Write to now."],
+    ["Run javascript:alert(1) now.", "Run now."],
+    ["Open data:text/html;base64,PGI+ now.", "Open now."],
+    ["Call tel:+15550100 now.", "Call now."],
+    // With what stood around it.
+    ["Read it (at https://a.example/b).", "Read it (at)."],
+    ['Read "t.co/abc", then stop.', "Read, then stop."],
+    ["Read <https://a.example/b>, then stop.", "Read, then stop."],
+    ["t.co/abc. Then the rest.", "Then the rest."],
+  ] as const) {
+    expect(storedAs(written_), written_).toBe(kept);
+  }
+});
+
+test("prose with a dot in it is kept as it was written", () => {
+  for (const prose of [
+    "You saved posts about Node.js, Next.js/React and Vue.js this week.",
+    "Version v2.1 and v2.1/3 came out, at 3.5/5 for most.",
+    "It ended.Next came a guide, e.g. on tooling, i.e./or scripts.",
+    "It shipped.It was fast.So were the others.",
+    "The files package.json/yarn.lock and src/main.ts are named.",
+    "The site example.com and the tool fly.io are named, not linked.",
+    "Ratios like 16:9, times like 10:30 and notes like TL;DR: all stay.",
+    "A comment such as // TODO or a path such as packages/core stays.",
+    "An IP such as 10.0.0.1 and a host such as localhost stay named.",
+    "The U.S./Canada split, and/or TCP/IP, and a price of $4.50/month.",
+    "Is it Node.js? Yes. Who knew.Right?",
+    "Emoji stay: \u{1F44D}\u{1F3FD} ❤️, and so does 日本語.",
+  ]) {
+    expect(storedAs(prose), prose).toBe(prose);
+  }
+});
+
+test("characters that show as nothing or reorder what is shown are dropped before anything is looked for", () => {
+  const zeroWidth = "​";
+  const joiner = "‍";
+  const override = "‮";
+  const isolate = "⁦";
+  const softHyphen = "­";
+  const mark = "﻿";
+
+  // An address cannot be split to pass as two words.
+  expect(storedAs(`Seen at t${zeroWidth}.co/abc today.`)).toBe(
+    "Seen at today.",
+  );
+  expect(storedAs(`Seen at pbs.tw${softHyphen}img.com/x today.`)).toBe(
+    "Seen at today.",
+  );
+  expect(storedAs(`Seen at ht${joiner}tps://a.example/b today.`)).toBe(
+    "Seen at today.",
+  );
+  // Nor is the order a reader sees turned round.
+  expect(
+    storedAs(`A week ${override}txet siht${isolate} of posts.${mark}`),
+  ).toBe("A week txet siht of posts.");
+  // Line and paragraph separators are line breaks; a tab is a space.
+  expect(storedAs("One. Two. Three.\r\nFour\tfive.")).toBe(
+    "One.\nTwo.\nThree.\nFour five.",
+  );
+});
+
+test("cleaning what is stored a second time changes nothing", () => {
+  for (const text of [
+    "Seen at t.co/abc. Then (at https://a.example/b), <www.b.example>; done.",
+    "Go to evil.example/collect, then evil.example:8080 and //c.example/d.",
+    "You saved posts about Node.js, Next.js/React and v2.1 this week.",
+  ]) {
+    const once = storedAs(text);
+    expect(storedAs(once), text).toBe(once);
+  }
+});
+
+test("a digest stored before its text was cleaned this way is cleaned when it is read", () => {
+  const lib = weekOfThree();
+  const run = startDigestRun(lib.store, newRun());
+  finishDigestRun(lib.store, run.id, written());
+  // As an earlier version of this code could have left it.
+  connectionOf(lib.store)
+    .prepare("UPDATE digest_runs SET body = ? WHERE id = ?")
+    .run(
+      JSON.stringify({
+        overview: "Seen at t.co/abc and pbs.twimg.com/media/x.jpg‮ today.",
+        themes: [
+          {
+            title: "On x.com/i/status/1",
+            summary: "Go to evil.example/collect?d=1 now.",
+            postIds: [postId(1)],
+          },
+        ],
+        worthRevisiting: [{ postId: postId(2), why: "See //evil.example/a." }],
+      }),
+      run.id,
+    );
+
+  const read = getDigest(lib.store, WEEK.key)?.text;
+
+  expect(read).toEqual({
+    overview: "Seen at and today.",
+    themes: [{ title: "On", summary: "Go to now.", postIds: [postId(1)] }],
+    worthRevisiting: [{ postId: postId(2), why: "See." }],
+  });
+  expect(listDigestRuns(lib.store)[0]?.text).toEqual(read);
+});

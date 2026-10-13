@@ -11,6 +11,9 @@
  *   storing the same answer twice leaves the library as the first did.
  * - **Capped.** A run is given the most it may spend and cannot exceed it:
  *   see `mostOf` in `pricing.ts` for why that holds whatever the model does.
+ *   It holds whatever the network does as well: before a request goes out,
+ *   room is set aside for every attempt the client may make at it, since
+ *   any attempt can be lost and charged all the same.
  * - **One at a time.** Core lets one run be open, so no bookmark is paid
  *   for twice by two runs working side by side.
  *
@@ -21,6 +24,7 @@ import {
   type Bookmark,
   type ClassificationFailureReason,
   finishTaggingRun,
+  finishTaggingRunWith,
   getOpenTaggingRun,
   getTaggingRun,
   getVocabulary,
@@ -209,6 +213,15 @@ export interface PlanOptions extends Selection {
 }
 
 /**
+ * How many bookmarks a run asked the API about: those it has an answer or a
+ * failure for, less those it dealt with without a request. What a bookmark
+ * cost the run is its cost over these, and the plan multiplies that by the
+ * bookmarks it would send, which are bookmarks of this kind.
+ */
+const askedBy = (run: TaggingRun) =>
+  run.classified - run.filedWithoutRequest + run.failed;
+
+/**
  * Works out what a run would do: how many bookmarks it would send, what
  * that is likely to cost, and how many hold too little to classify. It
  * reads the library and writes nothing; it makes no request and needs no
@@ -226,13 +239,11 @@ export function planTagging(store: Store, options: PlanOptions): TaggingPlan {
       run.transport === transport &&
       run.model === MODEL &&
       run.outcome === "completed" &&
-      run.classified >= 10 &&
+      askedBy(run) >= 10 &&
       run.costUsd > 0,
   );
   const usdPerBookmark =
-    measuredBy === undefined
-      ? null
-      : measuredBy.costUsd / (measuredBy.classified + measuredBy.failed);
+    measuredBy === undefined ? null : measuredBy.costUsd / askedBy(measuredBy);
   return {
     mode: options.mode,
     transport,
@@ -311,9 +322,14 @@ export interface TaggingReport {
   /** Whether this run took up a batch that an earlier one had submitted. */
   resumed: boolean;
   selected: number;
-  /** Bookmarks that now have an answer from this run, those filed without a request among them. */
+  /** Bookmarks that now have an answer from this run, those dealt with without a request among them. */
   classified: number;
-  /** Of the classified: filed as "too little text" without a request. */
+  /**
+   * Of the classified: those with nothing worth sending, dealt with without
+   * a request. A run that classifies files them as "too little text"; a
+   * `new-tags` run, which may only add tags, leaves them exactly as they
+   * are and marks them as asked.
+   */
   filedWithoutRequest: number;
   /** Bookmarks the model was asked about and gave nothing usable for, by reason. */
   failed: number;
@@ -328,9 +344,10 @@ export interface TaggingReport {
    * Attempts that went out and brought no answer back, each of which the
    * API may have charged for all the same. They are in no token count, so
    * not in `costUsd`; the run held each against its cap at the most a
-   * request can cost.
+   * request can cost, and `heldUsd` is what that came to.
    */
   unanswered: number;
+  heldUsd: number;
   /** What this run's answers were, by id. */
   categories: Record<string, number>;
   formats: Record<string, number>;
@@ -353,6 +370,7 @@ interface Tally {
   usage: TokenUsage;
   costUsd: number;
   unanswered: number;
+  heldUsd: number;
   categories: Record<string, number>;
   formats: Record<string, number>;
   tags: Record<string, number>;
@@ -373,6 +391,7 @@ const emptyTally = (): Tally => ({
   },
   costUsd: 0,
   unanswered: 0,
+  heldUsd: 0,
   categories: {},
   formats: {},
   tags: {},
@@ -420,19 +439,38 @@ function progressOf({ run, tally }: Context): RunProgress {
   };
 }
 
+/** Where the run stands, as its record holds it. */
+const standingOf = ({ tally, now }: Context) => ({
+  ...tally.usage,
+  classified: tally.classified,
+  failed: tally.failed,
+  costUsd: tally.costUsd,
+  unansweredRequests: tally.unanswered,
+  heldUsd: tally.heldUsd,
+  filedWithoutRequest: tally.filedWithoutRequest,
+  now: now(),
+});
+
 /** Writes where the run stands to its record, which is also its sign of life. */
 function saveProgress(context: Context): void {
-  const { store, run, tally, now, options } = context;
-  recordTaggingProgress(store, run.id, {
-    ...tally.usage,
-    classified: tally.classified,
-    failed: tally.failed,
-    costUsd: tally.costUsd,
-    unansweredRequests: tally.unanswered,
-    now: now(),
-  });
-  options.onProgress?.(progressOf(context));
+  recordTaggingProgress(context.store, context.run.id, standingOf(context));
+  context.options.onProgress?.(progressOf(context));
 }
+
+/**
+ * What a run is told when it finds its record closed under it. Core closes
+ * a run as abandoned once it has written nothing for ten minutes, to free
+ * the place of a process that died; a process that was only asleep, with
+ * its computer, wakes to find another run in that place.
+ */
+const SET_ASIDE: Ending = {
+  status: "failed",
+  failure: {
+    kind: "set-aside",
+    message:
+      "This run wrote nothing for ten minutes, was taken for dead, and another run was let start in its place. It has stopped sending, so that no bookmark is paid for twice. Every answer it had stored is kept; run again for what remains.",
+  },
+};
 
 /** Adds what a message used to the run's totals, whatever came of the message. */
 function spend(tally: Tally, message: ClaudeMessage, transport: Transport) {
@@ -524,6 +562,21 @@ function fileWithoutRequest(context: Context, postId: string): void {
   count(tally.formats, UNCLEAR_FORMAT);
 }
 
+/**
+ * In a run that may only add tags: a bookmark that holds nothing worth
+ * sending is not asked, and nothing it is filed under changes. It is marked
+ * as asked about the vocabulary, so that it is not taken again.
+ */
+function leaveAsItIs(context: Context, postId: string): void {
+  recordNewTags(context.store, {
+    postId,
+    tags: [],
+    vocabularyVersion: context.run.vocabularyVersion,
+  });
+  context.tally.classified += 1;
+  context.tally.filedWithoutRequest += 1;
+}
+
 type Ending =
   | { status: "completed" | "stopped-at-cap" | "waiting-for-batch" }
   | { status: "failed"; failure: { kind: string; message: string } };
@@ -540,7 +593,8 @@ const REJECTIONS_IN_A_ROW = 3;
  * When the rate limit outlasts the client's own retries, the run waits
  * this long and asks again, this many times running, before it gives up:
  * a long run of single requests is expected to meet the limit, and meeting
- * it is not a failure.
+ * it is not a failure. The wait is the whole run's: the requests in flight
+ * meet the limit together, and that is one wait, not one each.
  */
 const RATE_LIMIT_PAUSE_MS = 60_000;
 const RATE_LIMIT_PAUSES = 8;
@@ -563,7 +617,13 @@ async function sendDirectly(
   const asking = askingOf(context);
   const wait = options.wait ?? sleep;
   const queue = [...requests];
-  let pauses = 0;
+  const attempts = options.claude.attemptsPerRequest;
+  if (!Number.isInteger(attempts) || attempts < 1) {
+    // Without it the sum below is no number, and no cap holds.
+    throw new Error(
+      "The client does not say how many attempts it makes at a request.",
+    );
+  }
   // An attempt that went out and brought no answer may have been charged
   // all the same. Each is held against the cap at the most a request of
   // this run can cost, though it is not in the cost the API reported.
@@ -573,23 +633,53 @@ async function sendDirectly(
   const lostBefore = options.claude.lostRequests();
   const lost = () => {
     tally.unanswered = options.claude.lostRequests() - lostBefore;
-    return tally.unanswered * dearest;
+    tally.heldUsd = tally.unanswered * dearest;
+    return tally.heldUsd;
   };
   let reserved = 0;
   let answered = 0;
   let rejectedInARow = 0;
   let stopped: Ending | undefined;
+  // The rate limit. `pauses` counts the waits in a row with no answer
+  // between them. `stretch` numbers the stretches of sending between waits,
+  // so that requests sent side by side, which meet the limit together,
+  // begin one wait between them: the first to come back begins it, and the
+  // others, sent in the stretch it ended, only join it.
+  let pauses = 0;
+  let stretch = 0;
+  let pausing: Promise<void> | undefined;
+
+  /**
+   * Writes where the run stands. False, and the run is to stop, when its
+   * record was closed under it: another run has its place.
+   */
+  const alive = (): boolean => {
+    try {
+      saveProgress(context);
+      return true;
+    } catch (error) {
+      if (!(error instanceof TaggingRunNotOpen)) throw error;
+      stopped ??= SET_ASIDE;
+      return false;
+    }
+  };
 
   /** Sends the next request. False when there is none, or the run is to stop. */
   const step = async (): Promise<boolean> => {
+    // Nothing is sent while the run waits out the rate limit.
+    while (pausing !== undefined) await pausing;
     if (stopped !== undefined) return false;
     const next = queue.shift();
     if (next === undefined) return false;
-    const most = mostOf(next.size, "direct");
-    // What is spent, plus the most the requests in flight can still cost,
-    // plus the most this one can: the cap holds even if every one of them
-    // costs all it can. A request that does not fit goes back, and this
-    // worker ends; one whose request is in flight carries on when it
+    // Room for every attempt the client may make at this request: it tries
+    // again by itself after an attempt that brought no answer, and that
+    // attempt may have been charged.
+    const most = mostOf(next.size, "direct") * attempts;
+    // What is spent, plus what is held for attempts already lost, plus the
+    // most the requests in flight can still cost, plus the most this one
+    // can: the cap holds even if every attempt of every one of them is
+    // charged all it can be. A request that does not fit goes back, and
+    // this worker ends; one whose request is in flight carries on when it
     // returns, so near the cap the run narrows to one request at a time
     // and ends only when not even one fits.
     if (tally.costUsd + lost() + reserved + most > options.capUsd) {
@@ -597,6 +687,7 @@ async function sendDirectly(
       return false;
     }
     reserved += most;
+    const sentIn = stretch;
     try {
       const message = await options.claude.classify(
         requestFor(next.input, "direct", asking),
@@ -608,33 +699,39 @@ async function sendDirectly(
       pauses = 0;
     } catch (error) {
       if (!(error instanceof ClaudeFailure)) throw error;
-      if (error.kind === "rate-limited" && pauses < RATE_LIMIT_PAUSES) {
+      if (error.kind === "rate-limited") {
         // Not answered and not charged: it goes back, and is asked again
         // once the limit has had time to pass.
-        pauses += 1;
         queue.unshift(next);
-        await wait(RATE_LIMIT_PAUSE_MS);
-        return stopped === undefined;
-      }
-      rejectedInARow += 1;
-      if (
+        if (sentIn !== stretch) return true;
+        if (pauses < RATE_LIMIT_PAUSES) {
+          pauses += 1;
+          stretch += 1;
+          // A sign of life before the wait: a run that is waiting is not dead.
+          if (!alive()) return false;
+          pausing = wait(RATE_LIMIT_PAUSE_MS).finally(() => {
+            pausing = undefined;
+          });
+          return true;
+        }
+      } else if (
         error.kind === "rejected" &&
         answered > 0 &&
-        rejectedInARow < REJECTIONS_IN_A_ROW
+        rejectedInARow + 1 < REJECTIONS_IN_A_ROW
       ) {
+        rejectedInARow += 1;
         fail(context, next.bookmark.postId, "rejected");
-      } else {
-        stopped ??= {
-          status: "failed",
-          failure: { kind: error.kind, message: error.message },
-        };
-        return false;
+        return alive();
       }
+      stopped ??= {
+        status: "failed",
+        failure: { kind: error.kind, message: error.message },
+      };
+      return false;
     } finally {
       reserved -= most;
     }
-    saveProgress(context);
-    return true;
+    return alive();
   };
 
   // The first request alone: it writes the system prompt to the cache, and
@@ -648,7 +745,7 @@ async function sendDirectly(
   }
   // The last word on what went unanswered, for the run's record.
   lost();
-  saveProgress(context);
+  alive();
   return (
     stopped ?? {
       status: queue.length > 0 ? "stopped-at-cap" : "completed",
@@ -673,14 +770,36 @@ export const DEFAULT_BATCH_WAIT_MS = 60 * 60 * 1000;
 const sleep = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
+/** Makes a tally say what a run's record says: for a process that finds the work done by another. */
+function adopt(tally: Tally, run: TaggingRun): void {
+  tally.classified = run.classified;
+  tally.filedWithoutRequest = run.filedWithoutRequest;
+  tally.failed = run.failed;
+  tally.costUsd = run.costUsd;
+  tally.unanswered = run.unansweredRequests;
+  tally.heldUsd = run.heldUsd;
+  tally.usage = {
+    inputTokens: run.inputTokens,
+    cacheWriteTokens: run.cacheWriteTokens,
+    cacheReadTokens: run.cacheReadTokens,
+    outputTokens: run.outputTokens,
+  };
+}
+
 /**
- * Waits for the run's batch and stores its results. Nothing is written to
- * the run's totals until every result has been read, so a collection that
- * is interrupted starts again from the batch and counts nothing twice.
+ * Waits for the run's batch and stores its results, closing the run as
+ * `outcome` with them. The results are read first, all of them, and then
+ * stored as one change to the library together with the run's totals and
+ * its closing: `finishTaggingRunWith`. So a collection that is interrupted
+ * has stored nothing and starts again from the batch, and of two processes
+ * that take up the same batch one stores it and the other finds the run
+ * closed and stores nothing. Either way each result is counted once, which
+ * matters for a failure: that is a count on its bookmark.
  */
 async function collectBatch(
   context: Context,
   batch: { id: string; postIds: readonly string[] },
+  outcome: "completed" | "stopped-at-cap" = "completed",
 ): Promise<Ending> {
   const { options, tally, run, store, now } = context;
   const wait = options.wait ?? sleep;
@@ -729,35 +848,30 @@ async function collectBatch(
       },
     };
   }
-  for (const { postId, result } of outcomes) {
-    if (result.type === "succeeded") {
-      spend(tally, result.message, "batch");
-      settle(context, postId, result.message);
-    } else if (
-      result.type === "errored" &&
-      result.error.error.type === "invalid_request_error"
-    ) {
-      fail(context, postId, "rejected");
+  const closed = finishTaggingRunWith(store, run.id, () => {
+    for (const { postId, result } of outcomes) {
+      if (result.type === "succeeded") {
+        spend(tally, result.message, "batch");
+        settle(context, postId, result.message);
+      } else if (
+        result.type === "errored" &&
+        result.error.error.type === "invalid_request_error"
+      ) {
+        fail(context, postId, "rejected");
+      }
+      // An expired or cancelled request, or one the API failed on, was not
+      // answered and is not the bookmark's failure: the next run takes it.
     }
-    // An expired or cancelled request, or one the API failed on, was not
-    // answered and is not the bookmark's failure: the next run takes it.
-  }
-  try {
-    recordTaggingProgress(store, run.id, {
-      ...tally.usage,
-      classified: tally.classified,
-      failed: tally.failed,
-      costUsd: tally.costUsd,
-      unansweredRequests: tally.unanswered,
-      now: now(),
-    });
-  } catch (error) {
-    // Another process took up the same batch and closed the run first. It
-    // stored the same answers and the same totals; there is nothing to add.
-    if (!(error instanceof TaggingRunNotOpen)) throw error;
+    recordTaggingProgress(store, run.id, standingOf(context));
+    return { outcome, now: now() };
+  });
+  if (closed === undefined) {
+    // Another process took up the same batch and stored it first. This one
+    // has stored nothing, and reports what that one recorded.
+    adopt(tally, getTaggingRun(store, run.id));
   }
   options.onProgress?.(progressOf(context));
-  return { status: "completed" };
+  return { status: outcome };
 }
 
 async function sendBatch(
@@ -812,10 +926,11 @@ async function sendBatch(
     batch: { id, postIds },
     now: now(),
   });
-  const ending = await collectBatch(context, { id, postIds });
-  return ending.status === "completed" && admitted.length < requests.length
-    ? { status: "stopped-at-cap" }
-    : ending;
+  return collectBatch(
+    context,
+    { id, postIds },
+    admitted.length < requests.length ? "stopped-at-cap" : "completed",
+  );
 }
 
 function reportOf(
@@ -845,6 +960,7 @@ function reportOf(
     costUsd: tally.costUsd,
     capUsd: run?.capUsd ?? options.capUsd,
     unanswered: tally.unanswered,
+    heldUsd: tally.heldUsd,
     categories: tally.categories,
     formats: tally.formats,
     tags: tally.tags,
@@ -881,7 +997,9 @@ function close(
       now: now(),
     });
   } catch (error) {
-    // Closed already, by another process that took up the same batch.
+    // Closed already: by the collection of its batch, which closes the run
+    // with the last of what it stores, in this process or another; or as
+    // abandoned, under a run that was taken for dead.
     if (!(error instanceof TaggingRunNotOpen)) throw error;
     closed = getTaggingRun(store, run.id);
   }
@@ -902,12 +1020,22 @@ async function guarded(
   try {
     ending = await work();
   } catch (error) {
+    if (error instanceof TaggingRunNotOpen) {
+      // The run's record was closed under it. Nothing more is sent, and
+      // this is a report like any other, not an error of the caller's.
+      return close(context, SET_ASIDE, parts);
+    }
     if (!(error instanceof ClaudeFailure)) {
-      finishTaggingRun(context.store, context.run.id, {
-        outcome: "failed",
-        failure: "error",
-        now: context.now(),
-      });
+      try {
+        finishTaggingRun(context.store, context.run.id, {
+          outcome: "failed",
+          failure: "error",
+          now: context.now(),
+        });
+      } catch (closing) {
+        // Closed already; what broke the run is the error to hear of.
+        if (!(closing instanceof TaggingRunNotOpen)) throw closing;
+      }
       throw error;
     }
     ending = {
@@ -931,9 +1059,9 @@ function resume(
   now: () => Date,
 ): Promise<TaggingReport> {
   const tally = emptyTally();
-  // What the run filed without a request before it submitted its batch.
+  // What the run dealt with without a request before it submitted its batch.
   tally.classified = run.classified;
-  tally.filedWithoutRequest = run.classified;
+  tally.filedWithoutRequest = run.filedWithoutRequest;
   const context: Context = {
     store,
     options,
@@ -1046,7 +1174,10 @@ export async function runTagging(
   };
   return guarded(context, { transport }, async () => {
     for (const { bookmark, substance } of chosen) {
-      if (substance === "none") fileWithoutRequest(context, bookmark.postId);
+      if (substance !== "none") continue;
+      // A run that may only add tags files nothing: LAB-9.
+      if (context.onlyNewTags) leaveAsItIs(context, bookmark.postId);
+      else fileWithoutRequest(context, bookmark.postId);
     }
     saveProgress(context);
     if (sendable.length === 0) return { status: "completed" };

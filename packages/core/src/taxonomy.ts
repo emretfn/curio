@@ -43,7 +43,13 @@ export interface Taxonomy {
   readonly boundaryRules: readonly string[];
   /** A bookmark has exactly one, whatever its category. */
   readonly formats: readonly TaxonomyEntry[];
-  /** How many tags of the vocabulary a bookmark may have. */
+  /**
+   * How many tags of the vocabulary the classifier may give a post in one
+   * answer. It keeps the classifier to a few; it is not a bound on a
+   * bookmark. Tags that reach a bookmark by the owner's decision are added
+   * beside them: a proposal the owner accepted or named an alias, a tag the
+   * owner added to the vocabulary since, a correction.
+   */
   readonly maxTagsPerPost: number;
   /** How many tags outside the vocabulary the classifier may suggest for one post. */
   readonly maxProposedTagsPerPost: number;

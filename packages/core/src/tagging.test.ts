@@ -10,6 +10,7 @@ import { insertRawCapture } from "./raw-captures.ts";
 import { connectionOf, type Store } from "./store.ts";
 import {
   finishTaggingRun,
+  finishTaggingRunWith,
   getOpenTaggingRun,
   getTaggingRun,
   INSTRUCTIONS_VERSION,
@@ -22,6 +23,7 @@ import {
   recordTaggingProgress,
   startTaggingRun,
   summariseTagging,
+  summariseTaggingSpend,
   TAGGING_RUN_STALE_MS,
   TaggingRunInProgress,
   TaggingRunNotOpen,
@@ -228,9 +230,12 @@ test("a run is opened, records where it stands, and is closed with what it used"
     failed: 1,
     costUsd: 0.0125,
     unansweredRequests: 3,
+    heldUsd: 0.006,
+    filedWithoutRequest: 1,
     now: at(1),
   });
-  // Progress that says nothing of unanswered attempts leaves their count.
+  // Progress that says nothing of unanswered attempts, of what was held for
+  // them, or of what was dealt with without a request leaves each as it was.
   recordTaggingProgress(store, opened.id, {
     ...usage,
     classified: 2,
@@ -252,6 +257,8 @@ test("a run is opened, records where it stands, and is closed with what it used"
     capUsd: 1.5,
     costUsd: 0,
     unansweredRequests: 0,
+    heldUsd: 0,
+    filedWithoutRequest: 0,
   });
   expect(closed).toEqual({
     id: opened.id,
@@ -275,10 +282,116 @@ test("a run is opened, records where it stands, and is closed with what it used"
     ...usage,
     costUsd: 0.0125,
     unansweredRequests: 3,
+    heldUsd: 0.006,
+    filedWithoutRequest: 1,
     capUsd: 1.5,
   });
   expect(getOpenTaggingRun(store)).toBeUndefined();
   expect(listTaggingRuns(store)).toEqual([closed]);
+});
+
+test("a run is closed together with the last of its work: all of it is stored, or none", () => {
+  const store = library(3);
+  const opened = startTaggingRun(store, run());
+  const progress = { ...usage, classified: 1, failed: 2, costUsd: 0.01 };
+  const failures = () => summariseTagging(store).failed;
+  const fail = (n: number) =>
+    recordClassificationFailure(store, {
+      postId: postId(n),
+      reason: "refused",
+      instructionsVersion: 1,
+    });
+
+  // Work that breaks halfway leaves nothing behind, and the run open.
+  expect(() =>
+    finishTaggingRunWith(store, opened.id, () => {
+      classify(store, 1);
+      fail(2);
+      recordTaggingProgress(store, opened.id, progress);
+      throw new Error("the process died here");
+    }),
+  ).toThrow("the process died here");
+  expect(summariseTagging(store)).toMatchObject({ classified: 0, failed: 0 });
+  expect(getOpenTaggingRun(store)).toMatchObject({
+    id: opened.id,
+    classified: 0,
+  });
+
+  // The same work done whole is stored with the closing.
+  const closed = finishTaggingRunWith(store, opened.id, () => {
+    classify(store, 1);
+    fail(2);
+    fail(3);
+    recordTaggingProgress(store, opened.id, progress);
+    return { outcome: "completed", now: at(2) };
+  });
+  expect(closed).toMatchObject({
+    outcome: "completed",
+    finishedAt: at(2),
+    classified: 1,
+    failed: 2,
+  });
+  expect(failures()).toBe(2);
+
+  // A second process with the same results in hand finds the run closed:
+  // its work is not called, and no failure is counted a second time.
+  let called = false;
+  expect(
+    finishTaggingRunWith(store, opened.id, () => {
+      called = true;
+      fail(2);
+      fail(3);
+      return { outcome: "completed" };
+    }),
+  ).toBeUndefined();
+  expect(called).toBe(false);
+  // Counted once each, so both are still asked about by the next run.
+  expect(candidates(store).total).toBe(2);
+});
+
+test("what one starter's runs have spent since a moment is summed over every run, and holds what was held for unanswered attempts", () => {
+  const store = library(1);
+  const spend = (
+    startedBy: "owner" | "app",
+    minute: number,
+    costUsd: number,
+    heldUsd: number,
+  ) => {
+    const opened = startTaggingRun(store, run({ startedBy, now: at(minute) }));
+    recordTaggingProgress(store, opened.id, {
+      ...usage,
+      classified: 0,
+      failed: 0,
+      costUsd,
+      heldUsd,
+      now: at(minute),
+    });
+    return opened.id;
+  };
+  const finish = (id: number, minute: number) =>
+    finishTaggingRun(store, id, { outcome: "completed", now: at(minute) });
+  finish(spend("app", 0, 5, 5), 0);
+  // More runs than any list of runs returns, the owner's among them.
+  for (let n = 1; n <= 130; n += 1) {
+    finish(spend(n % 13 === 0 ? "owner" : "app", n, 0.001, 0.0005), n);
+  }
+  // And one still open.
+  spend("app", 131, 0.25, 0.125);
+
+  const byApp = summariseTaggingSpend(store, {
+    startedBy: "app",
+    since: at(1),
+  });
+
+  expect(byApp.runs).toBe(121);
+  expect(byApp.costUsd).toBeCloseTo(120 * 0.001 + 0.25, 10);
+  expect(byApp.heldUsd).toBeCloseTo(120 * 0.0005 + 0.125, 10);
+  expect(
+    summariseTaggingSpend(store, { startedBy: "owner", since: at(1) }),
+  ).toMatchObject({ runs: 10 });
+  expect(
+    summariseTaggingSpend(store, { startedBy: "app", since: at(200) }),
+  ).toEqual({ runs: 0, costUsd: 0, heldUsd: 0 });
 });
 
 test("only one run is open at a time", () => {

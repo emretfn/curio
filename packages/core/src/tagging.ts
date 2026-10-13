@@ -326,6 +326,14 @@ export interface TaggingRun extends TokenUsage {
    * count, and so not in `costUsd`.
    */
   unansweredRequests: number;
+  /**
+   * What the run held against its cap for those attempts: each at the most
+   * a request of the run could cost. Not in `costUsd`. What a run may have
+   * cost at the most is the two together.
+   */
+  heldUsd: number;
+  /** Of `classified`: bookmarks with nothing worth sending, dealt with without a request. */
+  filedWithoutRequest: number;
   /** The most the run was allowed to spend. */
   capUsd: number;
 }
@@ -355,6 +363,8 @@ interface RunRow {
   outputTokens: number;
   costUsd: number;
   unansweredRequests: number;
+  heldUsd: number;
+  filedWithoutRequest: number;
   capUsd: number;
 }
 
@@ -369,6 +379,7 @@ const SELECT_RUN = `
          cache_write_tokens AS cacheWriteTokens,
          cache_read_tokens AS cacheReadTokens, output_tokens AS outputTokens,
          cost_usd AS costUsd, unanswered_requests AS unansweredRequests,
+         held_usd AS heldUsd, filed_without_request AS filedWithoutRequest,
          cap_usd AS capUsd
   FROM tagging_runs`;
 
@@ -516,6 +527,10 @@ export interface TaggingProgress extends TokenUsage {
   costUsd: number;
   /** Attempts that brought no answer back. Left as it was when not given. */
   unansweredRequests?: number | undefined;
+  /** What the run holds against its cap for them. Left as it was when not given. */
+  heldUsd?: number | undefined;
+  /** Of `classified`, those dealt with without a request. Left as it was when not given. */
+  filedWithoutRequest?: number | undefined;
   /** Set once, when a batch has been submitted. */
   batch?: { id: string; postIds: readonly string[] } | undefined;
   now?: Date | undefined;
@@ -539,6 +554,8 @@ export function recordTaggingProgress(
          output_tokens = @outputTokens,
          cost_usd = @costUsd,
          unanswered_requests = coalesce(@unansweredRequests, unanswered_requests),
+         held_usd = coalesce(@heldUsd, held_usd),
+         filed_without_request = coalesce(@filedWithoutRequest, filed_without_request),
          batch_id = coalesce(@batchId, batch_id),
          batch_post_ids = coalesce(@batchPostIds, batch_post_ids)
        WHERE id = @id AND finished_at IS NULL`,
@@ -554,6 +571,8 @@ export function recordTaggingProgress(
       outputTokens: progress.outputTokens,
       costUsd: progress.costUsd,
       unansweredRequests: progress.unansweredRequests ?? null,
+      heldUsd: progress.heldUsd ?? null,
+      filedWithoutRequest: progress.filedWithoutRequest ?? null,
       batchId: progress.batch?.id ?? null,
       batchPostIds:
         progress.batch === undefined
@@ -583,6 +602,68 @@ export function finishTaggingRun(
     });
   if (changes === 0) throw new TaggingRunNotOpen(id);
   return runById(db, id);
+}
+
+/**
+ * Closes a run together with the last of its work. `work` is called only if
+ * the run is still open, and what it writes and the closing are one change
+ * to the library: all of it, or, if `work` throws or another process closed
+ * the run first, none of it. Returns the closed run, or undefined when the
+ * run was no longer open and `work` was not called.
+ *
+ * This is how a batch's results are stored. Two processes can take up the
+ * same waiting batch, and one can die halfway through storing it; a failure
+ * is a count on a bookmark, so results stored twice, or stored in part and
+ * then again, would count each failure twice.
+ */
+export function finishTaggingRunWith(
+  store: Store,
+  id: number,
+  work: () => { outcome: TaggingRunOutcome; failure?: string; now?: Date },
+): TaggingRun | undefined {
+  const db = connectionOf(store);
+  const finish = db.transaction(() => {
+    const open = db
+      .prepare<[number], number>(
+        "SELECT 1 FROM tagging_runs WHERE id = ? AND finished_at IS NULL",
+      )
+      .pluck()
+      .get(id);
+    if (open === undefined) return undefined;
+    return finishTaggingRun(store, id, work());
+  });
+  return finish.immediate();
+}
+
+/** What the runs of one starter have spent, and may have spent, since a moment. */
+export interface TaggingSpend {
+  runs: number;
+  /** From the tokens the API reported. */
+  costUsd: number;
+  /** Held for attempts that brought no answer, which the API may have charged for. */
+  heldUsd: number;
+}
+
+/**
+ * What every run `startedBy` began at or after `since` has cost, open runs
+ * included, however many there were. An allowance for a period is taken
+ * over `costUsd` and `heldUsd` together.
+ */
+export function summariseTaggingSpend(
+  store: Store,
+  options: { startedBy: TaggingRun["startedBy"]; since: Date },
+): TaggingSpend {
+  const spend = connectionOf(store)
+    .prepare<[string, number], TaggingSpend>(
+      `SELECT count(*) AS runs, coalesce(sum(cost_usd), 0) AS costUsd,
+              coalesce(sum(held_usd), 0) AS heldUsd
+       FROM tagging_runs WHERE started_by = ? AND started_at >= ?`,
+    )
+    .get(options.startedBy, options.since.getTime());
+  if (spend === undefined) {
+    throw new Error("An aggregate query returned no row.");
+  }
+  return spend;
 }
 
 /** One run by its id, open or closed. */
