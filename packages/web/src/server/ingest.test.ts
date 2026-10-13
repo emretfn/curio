@@ -537,6 +537,21 @@ test("the app's start scripts listen on the loopback address and the port the ex
   expect(scripts.dev).toContain(`next dev ${binding}`);
 });
 
+test("the app's config switches off the framework's own usage reports, before the config itself", () => {
+  const config = readFileSync(
+    new URL("../../next.config.ts", import.meta.url),
+    "utf8",
+  );
+  const switchedOff = config.indexOf(
+    'process.env.NEXT_TELEMETRY_DISABLED = "1";',
+  );
+
+  // A build reads this file, then the variable: it has to be set at the top
+  // of the file, not inside something the build calls later.
+  expect(switchedOff).toBeGreaterThan(-1);
+  expect(switchedOff).toBeLessThan(config.indexOf("const nextConfig"));
+});
+
 test("the pairing token is read only by the two routes that check a signature", () => {
   // No page or other route can show the token if none of them reads it. The
   // one place it is ever displayed is the terminal, by `pnpm pair`.

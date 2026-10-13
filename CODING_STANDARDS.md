@@ -227,6 +227,8 @@ What these checks cannot see: an extension the owner has given access to every s
 - **PRIV-3** No entry is removed from `.gitignore`.
 - **PRIV-6** The API key is in the diff nowhere: not in source, a test, a fixture, a document or `.env.example`, whose one variable has no value. Tests use `FAKE_KEY` of the classifier's fake API, which is shaped like a key and is none. *Why: PRIV-1, for the one secret here that costs money.*
 
+- **PRIV-7** Building and running the app asks no other host for anything. Next reports anonymous usage figures about its own commands to its maker unless told otherwise, so `packages/web/next.config.ts` sets `NEXT_TELEMETRY_DISABLED` at its top, which a build reads after it has read that file; `ingest.test.ts` pins the line and its place. No page loads a font, script or image from another host (the media of X-7 apart), and nothing is added that reports usage anywhere. *Why: the README tells a stranger what leaves their computer, and the list has to be the whole of it. That a framework reports by default was found only by reading its source.*
+
 ## Dependencies
 
 - **DEP-1** A dependency is added to the package that imports it. The root `package.json` holds tooling only.
