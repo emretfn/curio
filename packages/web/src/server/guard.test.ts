@@ -4,7 +4,12 @@ import {
   sha256Hex,
 } from "@x-bookmarks/extension";
 import { expect, test } from "vitest";
-import { isLocalHost, provenAnswer, refuseUnlessExtension } from "./guard.ts";
+import {
+  appPort,
+  isLocalHost,
+  provenAnswer,
+  refuseUnlessExtension,
+} from "./guard.ts";
 import { extensionRequest, NONCE, TOKEN } from "./testing.ts";
 
 const OTHER_TOKEN = "Zq3vX2mB8sYt0aLr5nWc7dHf1gJz4pQe9uTi6oVbNxM";
@@ -27,6 +32,37 @@ test.each([
 ])("%s is not", (_, host) => {
   expect(isLocalHost(host)).toBe(false);
 });
+
+test("an app started on another port answers at that address and no longer at the extension's", () => {
+  const demo = { X_BOOKMARKS_PORT: "47131" };
+
+  expect(appPort(demo)).toBe(47131);
+  expect(isLocalHost("127.0.0.1:47131", demo)).toBe(true);
+  expect(isLocalHost("localhost:47131", demo)).toBe(true);
+  expect(isLocalHost("127.0.0.1:47130", demo)).toBe(false);
+  // A rebound domain is still another name, whatever the port.
+  expect(isLocalHost("evil.example:47131", demo)).toBe(false);
+});
+
+test.each([
+  ["nothing", undefined],
+  ["an empty value", ""],
+  ["a word", "demo"],
+  ["a port only root may hold", "80"],
+  ["a number that is no port", "70000"],
+  ["a number with something after it", "47131 "],
+  ["a number written another way", "0x1f"],
+  ["a host and a port", "evil.example:47131"],
+])(
+  "a port given as %s is ignored, and the app answers to its own alone",
+  (_, value) => {
+    const environment = { X_BOOKMARKS_PORT: value };
+
+    expect(appPort(environment)).toBe(47130);
+    expect(isLocalHost("127.0.0.1:47130", environment)).toBe(true);
+    expect(isLocalHost(`127.0.0.1:${value}`, environment)).toBe(false);
+  },
+);
 
 test("the paired extension's request may proceed, and yields what it signed", async () => {
   const request = await extensionRequest("/api/ingest", '{"a":1}');

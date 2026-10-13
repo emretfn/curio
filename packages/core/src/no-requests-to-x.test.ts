@@ -30,7 +30,9 @@ const SKIPPED_DIRECTORIES = new Set([
   "dist",
   ".next",
   ".next-e2e",
+  ".next-demo",
   "data",
+  "demo-data",
   "coverage",
   // Research notes cite X's own pages. They are prose, and nothing runs them.
   "docs",
@@ -179,6 +181,12 @@ const MAKES_REQUESTS: Record<string, string> = {
   "packages/e2e/src/fake-x.ts": "A server. It answers requests and makes none.",
   "packages/e2e/src/shapes-page.js":
     "Runs inside the test browser, where x.com is the fake.",
+  "packages/demo/package.json":
+    "Depends on Playwright, which drives the browser the screenshots are taken in.",
+  "packages/demo/src/app.ts":
+    "Starts this repo's own app as a child process, on 127.0.0.1 and a demo library, and waits for its port to open. It asks no host for anything.",
+  "packages/demo/src/screenshots.ts":
+    "Drives a Chromium through the demo app to take the README's images. The browser is started with every hostname unresolvable, the app is asked for at 127.0.0.1, and a request to anywhere else is refused and fails the run. The demo library names no host of X's (demo.test.ts).",
   "packages/core/src/no-requests-to-x.test.ts":
     "This check: the names of request functions, as patterns.",
   "packages/mcp/package.json":

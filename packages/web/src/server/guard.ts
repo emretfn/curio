@@ -10,18 +10,45 @@ import {
   sha256Hex,
 } from "@x-bookmarks/extension";
 
-const LOCAL_HOSTS: readonly string[] = [
-  `127.0.0.1:${APP_PORT}`,
-  `localhost:${APP_PORT}`,
-];
+/** The variable that names the port an app on another library was started on. */
+export const PORT_VARIABLE = "X_BOOKMARKS_PORT";
+
+/**
+ * The port this app answers on: `APP_PORT`, the one the extension is
+ * permitted to reach, unless whoever started this process said it listens
+ * on another. `pnpm demo` does, for the app it starts on a library of
+ * invented posts, so that the demo and the real app can run side by side.
+ *
+ * It is read from the environment of the process, which only the person
+ * starting the app writes, and it must be a port a user's program may
+ * hold. Anything else is ignored, and the app then answers to `APP_PORT`
+ * alone: started on another port with a value that is not one, it refuses
+ * every request instead of guessing.
+ */
+export function appPort(
+  environment: Record<string, string | undefined> = process.env,
+): number {
+  const configured = environment[PORT_VARIABLE];
+  if (configured === undefined || !/^[1-9][0-9]{3,4}$/.test(configured)) {
+    return APP_PORT;
+  }
+  const port = Number(configured);
+  return port >= 1024 && port <= 65535 ? port : APP_PORT;
+}
 
 /**
  * Whether a request was addressed to this app by its own local name. A page
  * on another site that has re-pointed its domain at 127.0.0.1 (DNS rebinding)
  * still sends that domain in `Host`, and is turned away here.
  */
-export function isLocalHost(host: string | null): boolean {
-  return host !== null && LOCAL_HOSTS.includes(host.toLowerCase());
+export function isLocalHost(
+  host: string | null,
+  environment: Record<string, string | undefined> = process.env,
+): boolean {
+  if (host === null) return false;
+  const port = appPort(environment);
+  const asked = host.toLowerCase();
+  return asked === `127.0.0.1:${port}` || asked === `localhost:${port}`;
 }
 
 /** A request shown to come from the paired extension. */

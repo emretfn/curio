@@ -17,7 +17,9 @@ const SKIPPED = new Set([
   "dist",
   ".next",
   ".next-e2e",
+  ".next-demo",
   "data",
+  "demo-data",
   "coverage",
   "docs",
   "fixtures",
@@ -356,6 +358,9 @@ test("the weekly digest is written by its own command and by nothing else: not t
   ]);
   expect(holding(/\bstartDigestRun\(/)).toEqual([
     "packages/core/src/digests.ts",
+    // The demo library stores a sample digest that was written with its
+    // invented posts. It asks no model, and names none as its writer.
+    "packages/demo/src/library.ts",
     "packages/tagger/src/digest/run.ts",
   ]);
   // The client's long request is asked for in one place.

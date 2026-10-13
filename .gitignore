@@ -7,6 +7,7 @@ build/
 out/
 .next/
 .next-e2e/
+.next-demo/
 next-env.d.ts
 coverage/
 *.tsbuildinfo
@@ -20,6 +21,9 @@ coverage/
 *.sqlite-*
 *.sqlite3
 *.sqlite3-*
+
+# The demo library `pnpm demo` builds: invented posts, made again each run.
+/demo-data/
 
 *.capture.json
 *.har
