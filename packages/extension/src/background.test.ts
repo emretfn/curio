@@ -250,6 +250,7 @@ test("only the extension's own pages may pair, ask for delivery or read the stat
   // A content script in an x.com tab shares the extension's id, not its origin.
   for (const message of [
     { type: "set-token", token: "attacker-token" },
+    { type: "check-pairing" },
     { type: "deliver-now" },
     { type: "get-status" },
     { type: "something-else" },
@@ -262,6 +263,23 @@ test("only the extension's own pages may pair, ask for delivery or read the stat
   const paired = await browser.send({ type: "set-token", token: TOKEN }, POPUP);
   expect(paired).toMatchObject({ pairing: "paired" });
   expect(await browser.send({ type: "something-else" }, POPUP)).toBeUndefined();
+});
+
+test("the popup can have a token saved while the app was closed checked again", async () => {
+  const { browser, app } = setUp({ paired: false });
+  await browser.startWorker();
+  app.goDown();
+
+  const closed = await browser.send({ type: "set-token", token: TOKEN }, POPUP);
+  app.comeUp();
+  const open = await browser.send({ type: "check-pairing" }, POPUP);
+
+  expect(closed).toMatchObject({
+    pairing: "unconfirmed",
+    lastError: { trouble: "app-unreachable" },
+  });
+  expect(open).toMatchObject({ pairing: "paired", lastError: null });
+  expect(app.requests.map(({ path }) => path)).toEqual(["/api/pairing"]);
 });
 
 test("a problem reported from an x.com tab shows in the status", async () => {

@@ -86,6 +86,11 @@ async function handle(
       await syncRetryAlarm();
       return status;
     }
+    case "check-pairing": {
+      const status = await queue.checkPairing();
+      await syncRetryAlarm();
+      return status;
+    }
     case "deliver-now":
       return deliver({ retryRejected: true });
     case "get-status":

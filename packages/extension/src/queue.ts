@@ -8,7 +8,7 @@ import {
   sha256Hex,
   signRequest,
 } from "./auth.ts";
-import type { Pairing, Status } from "./channel.ts";
+import type { Pairing, Status, Trouble } from "./channel.ts";
 import {
   APP_ORIGIN,
   type CaptureProblem,
@@ -50,6 +50,12 @@ export interface CaptureQueue {
   /** Saves the pairing token and asks the app to prove it holds the same one. */
   pair(token: string): Promise<Status>;
   /**
+   * Asks the app again to prove it holds the saved token, as `pair` does,
+   * for a token saved while the app was not answering. Sends the same signed
+   * greeting and nothing else; with no token saved it sends nothing.
+   */
+  checkPairing(): Promise<Status>;
+  /**
    * Sends waiting captures to the app, oldest first, once the app has proved
    * it holds the token, and stops at the first one it cannot be reached for.
    * Calls made while a delivery is running join it. `retryRejected` also
@@ -72,6 +78,8 @@ interface Stats {
     at: number;
     message: string;
     from: "capture" | "delivery";
+    /** Absent on an error stored before errors said what they were about. */
+    trouble?: Trouble;
   } | null;
 }
 
@@ -124,9 +132,9 @@ export function createCaptureQueue(options: CaptureQueueOptions): CaptureQueue {
       ...((await storage.get(STATS_KEY)) as Partial<Stats> | undefined),
     };
   }
-  const deliveryError = (message: string): Promise<void> =>
+  const deliveryError = (trouble: Trouble, message: string): Promise<void> =>
     updateStats((stats) => {
-      stats.lastError = { at: now(), message, from: "delivery" };
+      stats.lastError = { at: now(), message, from: "delivery", trouble };
     });
   const clearDeliveryError = (): Promise<void> =>
     updateStats((stats) => {
@@ -200,12 +208,12 @@ export function createCaptureQueue(options: CaptureQueueOptions): CaptureQueue {
   async function appProvesItself(token: string): Promise<boolean> {
     const hello = await exchange(PAIRING_PATH, token, "{}");
     if (hello.kind === "unreachable") {
-      await deliveryError(UNREACHABLE);
+      await deliveryError("app-unreachable", UNREACHABLE);
       return false;
     }
     if (hello.kind === "unproven" || hello.status !== 200) {
       await storage.set({ [PAIRED_KEY]: false });
-      await deliveryError(UNPROVEN);
+      await deliveryError("app-unproven", UNPROVEN);
       return false;
     }
     await storage.set({ [PAIRED_KEY]: true });
@@ -226,7 +234,7 @@ export function createCaptureQueue(options: CaptureQueueOptions): CaptureQueue {
     if (keys.length === 0) return true;
     const token = await readToken();
     if (token === undefined) {
-      await deliveryError(NOT_PAIRED);
+      await deliveryError("not-paired", NOT_PAIRED);
       return false;
     }
     // No capture leaves the extension until the other end has shown it is
@@ -245,11 +253,11 @@ export function createCaptureQueue(options: CaptureQueueOptions): CaptureQueue {
         JSON.stringify(capture),
       );
       if (result.kind === "unreachable") {
-        await deliveryError(UNREACHABLE);
+        await deliveryError("app-unreachable", UNREACHABLE);
         return false;
       }
       if (result.kind === "unproven") {
-        await deliveryError(UNPROVEN);
+        await deliveryError("app-unproven", UNPROVEN);
         return false;
       }
       if ([400, 413, 422].includes(result.status)) {
@@ -263,6 +271,7 @@ export function createCaptureQueue(options: CaptureQueueOptions): CaptureQueue {
           await storage.remove(key);
         }
         await deliveryError(
+          "capture-refused",
           `The app refused a capture (HTTP ${result.status}). It is kept in the extension.`,
         );
         continue;
@@ -274,6 +283,7 @@ export function createCaptureQueue(options: CaptureQueueOptions): CaptureQueue {
         answer?.id === capture.id;
       if (!stored) {
         await deliveryError(
+          "capture-unconfirmed",
           `The app answered HTTP ${result.status} without confirming the capture. Captures are kept and retried.`,
         );
         return false;
@@ -343,8 +353,18 @@ export function createCaptureQueue(options: CaptureQueueOptions): CaptureQueue {
       lastError: stats.lastError && {
         at: stats.lastError.at,
         message: stats.lastError.message,
+        trouble: stats.lastError.trouble ?? null,
       },
     };
+  }
+
+  /** Has the app prove it holds `token`, and delivers what was waiting if it does. */
+  async function confirm(token: string): Promise<Status> {
+    if (await appProvesItself(token)) {
+      await clearDeliveryError();
+      await deliver(false);
+    }
+    return status();
   }
 
   return {
@@ -368,6 +388,7 @@ export function createCaptureQueue(options: CaptureQueueOptions): CaptureQueue {
           at: now(),
           message: `${problem.operation}: ${problem.detail}`,
           from: "capture",
+          trouble: "not-captured",
         };
       });
     },
@@ -375,11 +396,11 @@ export function createCaptureQueue(options: CaptureQueueOptions): CaptureQueue {
       await storage.set({ [TOKEN_KEY]: token.trim() });
       // Unconfirmed until the app proves itself with this token.
       await storage.remove(PAIRED_KEY);
-      if (await appProvesItself(token.trim())) {
-        await clearDeliveryError();
-        await deliver(false);
-      }
-      return status();
+      return confirm(token.trim());
+    },
+    async checkPairing() {
+      const token = await readToken();
+      return token === undefined ? status() : confirm(token);
     },
     async deliver({ retryRejected = false } = {}) {
       await deliver(retryRejected);
