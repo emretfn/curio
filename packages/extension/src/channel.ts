@@ -1,7 +1,7 @@
 import type { HookEvent } from "./protocol.ts";
 
 /** The DOM event that carries a `HookEvent`, as JSON text, from the page hook to the relay. */
-export const HOOK_EVENT = "x-bookmarks:hook";
+export const HOOK_EVENT = "curio:hook";
 
 /**
  * Whether the app has shown that it holds the extension's token.

@@ -35,7 +35,7 @@ export function isXOwnedHost(hostname: string): boolean {
 export class XOwnedHostError extends Error {
   constructor(reason: string) {
     super(
-      `${reason} Nothing in x-bookmarks requests anything from X: the user's account is at risk. A detail a capture lacks stays missing.`,
+      `${reason} Nothing in Curio requests anything from X: the user's account is at risk. A detail a capture lacks stays missing.`,
     );
     this.name = "XOwnedHostError";
   }

@@ -8,10 +8,10 @@ import {
   requestSignatureIsValid,
   SIGNATURE_SCHEME,
   sha256Hex,
-} from "@x-bookmarks/extension";
+} from "@curio/extension";
 
 /** The variable that names the port an app on another library was started on. */
-export const PORT_VARIABLE = "X_BOOKMARKS_PORT";
+export const PORT_VARIABLE = "CURIO_PORT";
 
 /**
  * The port this app answers on: `APP_PORT`, the one the extension is
@@ -85,7 +85,7 @@ export async function refuseUnlessExtension(
     return refusal(403, "This app answers only on its local address.");
   }
   if (request.headers.get("origin") !== EXTENSION_ORIGIN) {
-    return refusal(403, "Only the x-bookmarks extension may send captures.");
+    return refusal(403, "Only the Curio extension may send captures.");
   }
   const [scheme, signature, ...extra] = (
     request.headers.get("authorization") ?? ""

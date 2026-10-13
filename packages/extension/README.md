@@ -8,7 +8,7 @@ Run commands from the repo root.
 
 1. Install and build, once: `pnpm install`, then `pnpm extension:build`.
 2. Start the app and leave it running: `pnpm app`. It serves <http://127.0.0.1:47130>.
-3. Load the extension. In Chrome open `chrome://extensions`, switch on **Developer mode**, press **Load unpacked** and choose `packages/extension/dist`. Chrome lists it as "Curio capture" with the id `imbpimaegfnjdhdcfefapkaejieaahjh`. Pin its icon, a small blue cabinet, to the toolbar.
+3. Load the extension. In Chrome open `chrome://extensions`, switch on **Developer mode**, press **Load unpacked** and choose `packages/extension/dist`. Chrome lists it as "Curio capture" with the id `imbpimaegfnjdhdcfefapkaejieaahjh`. Pin its icon to the toolbar.
 4. Pair. In a second terminal, in the repo, run `pnpm pair` and copy the token it prints. Click the extension's icon: the popup reads "Not paired yet" and lists these same steps. Paste the token and press **Pair**. The popup then reads "Paired. Nothing captured yet". The token is shown only in the terminal; the app serves it on no page.
 5. Reload any x.com tab that was already open. The extension starts with the page, so a tab opened before it was loaded captures nothing.
 6. Backfill. Open your bookmarks on x.com and scroll to the bottom by hand, at the pace you would read. X loads 20 bookmarks per step. The popup reads "Capturing" while you do, and "Captured" in it goes up by one each time; 3,000 bookmarks is about 150 steps and a quarter of an hour. If you use bookmark folders, open each folder and scroll it too.
@@ -75,7 +75,7 @@ On every `https://x.com/*` page, in the top frame, before X's scripts start:
 
 - In the page's own JavaScript world it replaces three functions with wrappers: `XMLHttpRequest.prototype.open`, `XMLHttpRequest.prototype.send` and `window.fetch`. Each wrapper calls the browser's original with the page's arguments and returns its result.
 - For each request it reads the URL. If the URL is not one of the five operations below, that is all it does: the response is never read.
-- For those five it reads the response text (from a copy, for `fetch`) and the request body, and passes them to the extension with a DOM event named `x-bookmarks:hook`.
+- For those five it reads the response text (from a copy, for `fetch`) and the request body, and passes them to the extension with a DOM event named `curio:hook`.
 - In the extension's isolated world it listens for that event and forwards it to the extension's service worker.
 
 It reads nothing else: no page content, cookies, tokens or other responses. It starts no request, changes no request or response, and never scrolls, clicks or navigates. Its service worker has no permission for x.com and cannot read X at all.
@@ -90,7 +90,7 @@ What still differs, and is observable by a script in the page that looks for it:
 
 - **Source text.** `XMLHttpRequest.prototype.open.toString()`, and the same for `send` and `fetch`, returns the wrapper's source instead of `function open() { [native code] }`.
 - **Stack traces.** An error thrown through a wrapper, such as calling `send()` before `open()`, carries a stack frame at `chrome-extension://imbpimaegfnjdhdcfefapkaejieaahjh/page-hook.js`. That names the extension.
-- **The event.** After each allowlisted response, an event named `x-bookmarks:hook` fires on `window` with the response in it. Any script that listens for that name receives it.
+- **The event.** After each allowlisted response, an event named `curio:hook` fires on `window` with the response in it. Any script that listens for that name receives it.
 - **Allowlisted `fetch` calls only.** The page receives a promise that follows the browser's, with the same response or the same rejection, one microtask later. The response body is read through a copy, which changes how it is buffered and nothing the page can read from the response.
 - **Allowlisted XHR calls only.** One more `load` listener is attached, so the hook's reading of the response runs ahead of any `load` listener the page adds after `open()`.
 - **Comparison with an untouched frame.** The extension runs in the top frame only, so the functions inside an `<iframe>` are the browser's own and differ from the top frame's.
@@ -99,7 +99,7 @@ The research note found no sign that X checks for any of this, and no report of 
 
 ### What a script in the page can do to the extension
 
-Any script running in an x.com page, X's own or another extension's, can fire the `x-bookmarks:hook` event itself. What that achieves is limited by what the rest of the extension accepts:
+Any script running in an x.com page, X's own or another extension's, can fire the `curio:hook` event itself. What that achieves is limited by what the rest of the extension accepts:
 
 - It can plant a capture: a made-up response for one of the five operations, which will be stored and later parsed as if X had sent it. It can do this repeatedly and fill the queue.
 - It cannot date it. The service worker dates every capture by its own clock when the capture arrives and ignores any time it is handed, so a planted capture is dated now. First-seen cannot be moved into the past or the future.

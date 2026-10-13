@@ -1,5 +1,5 @@
-import { correctBookmark } from "@x-bookmarks/core";
-import { APP_ORIGIN } from "@x-bookmarks/extension";
+import { correctBookmark } from "@curio/core";
+import { APP_ORIGIN } from "@curio/extension";
 import { expect, test } from "vitest";
 import { nextPageAddress } from "../components/library/load-more.ts";
 import { toItemView } from "../lib/post-view.ts";

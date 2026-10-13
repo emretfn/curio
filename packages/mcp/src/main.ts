@@ -4,8 +4,9 @@
  * protocol and nothing else; the few lines this writes go to standard error,
  * and none of them quotes a bookmark or a query.
  */
+
+import { openStore, type Store } from "@curio/core";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { openStore, type Store } from "@x-bookmarks/core";
 import { databasePath } from "./database-path.ts";
 import { createServer, LibraryUnavailable } from "./server.ts";
 
@@ -31,6 +32,6 @@ function library(): Store {
 }
 
 serveStdio(() => createServer(library), {
-  onerror: (error) => console.error(`x-bookmarks MCP server: ${error.name}`),
+  onerror: (error) => console.error(`Curio MCP server: ${error.name}`),
 });
-console.error(`x-bookmarks MCP server reading ${path}`);
+console.error(`Curio MCP server reading ${path}`);

@@ -13,7 +13,7 @@ import {
   listTags,
   openStore,
   summariseTagging,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 import { createClaude } from "./anthropic.ts";
 import {
   APP_TAGGING_VARIABLE,

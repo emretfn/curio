@@ -10,7 +10,7 @@
  * Everything worked out from them is this program's own arithmetic on the
  * token counts the API reports. The invoice is the authority.
  */
-import type { TokenUsage } from "@x-bookmarks/core";
+import type { TokenUsage } from "@curio/core";
 import { MAX_OUTPUT_TOKENS, MODEL } from "./instructions.ts";
 import type { Transport } from "./transport.ts";
 

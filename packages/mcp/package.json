@@ -1,5 +1,5 @@
 {
-  "name": "@x-bookmarks/mcp",
+  "name": "@curio/mcp",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,8 +11,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@curio/core": "workspace:*",
     "@modelcontextprotocol/server": "^2.3.1",
-    "@x-bookmarks/core": "workspace:*",
     "zod": "^4.2.0"
   },
   "devDependencies": {

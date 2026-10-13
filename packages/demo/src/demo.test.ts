@@ -18,8 +18,8 @@ import {
   summariseTagging,
   TAXONOMY,
   X_OWNED_DOMAINS,
-} from "@x-bookmarks/core";
-import { openTempStore } from "@x-bookmarks/core/testing";
+} from "@curio/core";
+import { openTempStore } from "@curio/core/testing";
 import { expect, test } from "vitest";
 import { AUTHORS } from "./authors.ts";
 import { DIGEST } from "./digest.ts";

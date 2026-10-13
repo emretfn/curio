@@ -8,12 +8,7 @@
  * Dates are formatted here, once, in the server's time zone and in English,
  * so that the server's markup and the browser's agree.
  */
-import type {
-  Bookmark,
-  PostContent,
-  PostMedia,
-  QuotedPost,
-} from "@x-bookmarks/core";
+import type { Bookmark, PostContent, PostMedia, QuotedPost } from "@curio/core";
 import { excerpt, markMatches } from "../server/core.ts";
 import type { LibraryItem } from "../server/library.ts";
 import { clock } from "./clock.ts";

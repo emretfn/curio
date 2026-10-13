@@ -20,7 +20,7 @@ import {
   summariseTagging,
   TAGGING_RUN_STALE_MS,
   TAXONOMY,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 import { expect, test } from "vitest";
 import { CLAUDE_API_ORIGIN, createClaude } from "./anthropic.ts";
 import {

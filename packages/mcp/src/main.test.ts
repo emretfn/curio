@@ -6,8 +6,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { Client } from "@modelcontextprotocol/client";
-import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import {
   acceptTagProposal,
   correctBookmark,
@@ -28,8 +26,10 @@ import {
   upsertBookmark,
   weekBefore,
   weekOf,
-} from "@x-bookmarks/core";
-import { readFixture, tempDatabasePath } from "@x-bookmarks/core/testing";
+} from "@curio/core";
+import { readFixture, tempDatabasePath } from "@curio/core/testing";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { expect, onTestFinished, test } from "vitest";
 import { NOTICE } from "./format.ts";
 
@@ -99,10 +99,10 @@ async function connect(directory: string): Promise<Client> {
     command: process.execPath,
     args: [MAIN],
     // The whole environment the server gets: where the library is, and no more.
-    env: { X_BOOKMARKS_DATA_DIR: directory },
+    env: { CURIO_DATA_DIR: directory },
     stderr: "ignore",
   });
-  const client = new Client({ name: "x-bookmarks-test", version: "0.0.0" });
+  const client = new Client({ name: "curio-test", version: "0.0.0" });
   onTestFinished(() => client.close());
   await client.connect(transport);
   return client;

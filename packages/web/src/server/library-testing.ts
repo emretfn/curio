@@ -13,9 +13,9 @@ import {
   parsePendingCaptures,
   recordClassification,
   type Store,
-} from "@x-bookmarks/core";
-import { openTempStore, readFixture } from "@x-bookmarks/core/testing";
-import { CAPTURE_SOURCE } from "@x-bookmarks/extension";
+} from "@curio/core";
+import { openTempStore, readFixture } from "@curio/core/testing";
+import { CAPTURE_SOURCE } from "@curio/extension";
 import type { BackupStatus } from "./backups.ts";
 
 /** Every `Bookmarks` fixture, by what it shows. */

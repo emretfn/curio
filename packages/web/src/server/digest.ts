@@ -17,7 +17,7 @@ import type {
   WeekEntry,
   WeekSummary,
   WrittenDigest,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 import { type PostView, toItemView } from "../lib/post-view.ts";
 import {
   excerpt,

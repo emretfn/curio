@@ -7,7 +7,7 @@
  * It is for a pass that stops before anything is sent, and it cannot be
  * made to do more, by a test or by a person who runs it by hand. It works
  * only where a test runner started it, on a library inside the data
- * directory the test moved (`X_BOOKMARKS_DATA_DIR`), reading the `.env`
+ * directory the test moved (`CURIO_DATA_DIR`), reading the `.env`
  * file of that directory and never the repo's own; and the pass is handed a
  * maker of clients that makes none, so that no key it might find is ever
  * signed in with.
@@ -28,16 +28,16 @@ if (
 ) {
   refuse("No test runner started this process.");
 }
-const moved = process.env.X_BOOKMARKS_DATA_DIR;
+const moved = process.env.CURIO_DATA_DIR;
 if (moved === undefined || moved === "") {
   refuse(
-    "X_BOOKMARKS_DATA_DIR is not set, so a pass would read the repo's own .env and could be the owner's.",
+    "CURIO_DATA_DIR is not set, so a pass would read the repo's own .env and could be the owner's.",
   );
 }
 const directory = resolve(moved as string);
 const [path] = process.argv.slice(2);
 if (path === undefined || dirname(resolve(path)) !== directory) {
-  refuse("The library to pass over must be the one in X_BOOKMARKS_DATA_DIR.");
+  refuse("The library to pass over must be the one in CURIO_DATA_DIR.");
 }
 
 const loaded: string[] = [];
@@ -48,8 +48,8 @@ registerHooks({
   },
 });
 
-const { openStore } = await import("@x-bookmarks/core");
-const { tagNewBookmarks } = await import("@x-bookmarks/tagger/automatic");
+const { openStore } = await import("@curio/core");
+const { tagNewBookmarks } = await import("@curio/tagger/automatic");
 const store = openStore(path as string);
 const { status } = await tagNewBookmarks(store, {
   envFile: join(directory, ".env"),

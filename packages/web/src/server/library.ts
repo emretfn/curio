@@ -18,8 +18,8 @@ import type {
   MatchOptions,
   ParsingSummary,
   Store,
-} from "@x-bookmarks/core";
-import { CAPTURE_SOURCE } from "@x-bookmarks/extension";
+} from "@curio/core";
+import { CAPTURE_SOURCE } from "@curio/extension";
 import type { LabelChoices } from "../components/library/label-choices.tsx";
 import { type BackupStatus, backupFailure } from "./backups.ts";
 import {

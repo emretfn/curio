@@ -10,7 +10,7 @@
  * no host of X's; nothing here fetches anything to add to a post.
  */
 import Anthropic from "@anthropic-ai/sdk";
-import { assertNotXOwnedUrl } from "@x-bookmarks/core";
+import { assertNotXOwnedUrl } from "@curio/core";
 
 /** The Claude API. The only origin this package sends anything to. */
 export const CLAUDE_API_ORIGIN = "https://api.anthropic.com";

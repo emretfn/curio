@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, onTestFinished, test } from "vitest";
 import {
+  APP_TAGGING_VARIABLE,
   ApiKeyUnavailable,
+  appTagging,
   dataDirectory,
   ENV_FILE,
   envFilePath,
@@ -15,10 +17,13 @@ import { FAKE_KEY } from "./testing/fake-api.ts";
 import { writeKey } from "./testing/library.ts";
 
 const STANDARD = "ANTHROPIC_API_KEY";
+/** What the key's variable and the app's switch were called before the project was named Curio. */
+const FORMER_KEY = "X_BOOKMARKS_ANTHROPIC_API_KEY";
+const FORMER_SWITCH = "X_BOOKMARKS_APP_TAGGING";
 const OTHER_KEY = "sk-ant-api03-UNDER0THE0STANDARD0NAME000000000000";
 
 function directory(): string {
-  const made = mkdtempSync(join(tmpdir(), "x-bookmarks-key-"));
+  const made = mkdtempSync(join(tmpdir(), "curio-key-"));
   onTestFinished(() => rmSync(made, { recursive: true, force: true }));
   return made;
 }
@@ -40,7 +45,7 @@ function refusal(path: string): ApiKeyUnavailable {
 
 test("the key is read from its line of the .env file", () => {
   expect(readApiKey(writeKey(directory()))).toBe(FAKE_KEY);
-  expect(KEY_VARIABLE).toBe("X_BOOKMARKS_ANTHROPIC_API_KEY");
+  expect(KEY_VARIABLE).toBe("CURIO_ANTHROPIC_API_KEY");
 });
 
 test.each([
@@ -81,6 +86,65 @@ test("with the key under both names, this project's is the one read", () => {
   );
 
   expect(readApiKey(path)).toBe(FAKE_KEY);
+});
+
+test("a key still under the variable's former name is not read, and the refusal names the line to rename", () => {
+  // A file as the example was before the rename, filled in by its owner.
+  const path = envWith(
+    `# settings\n\n${FORMER_KEY}=${FAKE_KEY}\n${FORMER_SWITCH}=\n`,
+  );
+  const refused = refusal(path);
+
+  expect(refused.reason).toBe("former-name");
+  expect(refused.message).toBe(
+    `Line 3 of ${path} gives the key under ${FORMER_KEY}, the variable's name before the project was called Curio. It is no longer read. In an editor, change that line's name to ${KEY_VARIABLE} and leave the value as it is.`,
+  );
+  expect(refused.message).not.toContain(FAKE_KEY);
+});
+
+test("the former name with no value is no key under any name, and is refused as an empty file is", () => {
+  const refused = refusal(envWith(`${FORMER_KEY}=\n`));
+
+  expect(refused.reason).toBe("not-set");
+  expect(refused.message).not.toContain(FORMER_KEY);
+});
+
+test("once the line is renamed the key is read, and a line left under the former name changes nothing", () => {
+  const renamed = envWith(`# settings\n\n${KEY_VARIABLE}=${FAKE_KEY}\n`);
+  const both = envWith(
+    `${FORMER_KEY}=${OTHER_KEY}\n${KEY_VARIABLE}=${FAKE_KEY}\n`,
+  );
+
+  expect(readApiKey(renamed)).toBe(FAKE_KEY);
+  expect(readApiKey(both)).toBe(FAKE_KEY);
+});
+
+test("a switch still under its former name leaves the app's tagging off, and the message names the line to rename", () => {
+  const path = envWith(`${KEY_VARIABLE}=${FAKE_KEY}\n${FORMER_SWITCH}=on\n`);
+  const tagging = appTagging(path);
+
+  expect(tagging.on).toBe(false);
+  expect(tagging.message).toContain(
+    `Line 2 of ${path} sets ${FORMER_SWITCH}, the setting's name before the project was called Curio, which is no longer read: to keep what it says, change that line's name to ${APP_TAGGING_VARIABLE} in an editor.`,
+  );
+  expect(tagging.message).not.toContain(FAKE_KEY);
+});
+
+test("the switch under its former name is mentioned only where it says something, and never turns anything on", () => {
+  const empty = appTagging(envWith(`${FORMER_SWITCH}=\n`));
+  const renamed = appTagging(
+    envWith(`${APP_TAGGING_VARIABLE}=on\n${FORMER_SWITCH}=off\n`),
+  );
+  const onlyFormer = appTagging(
+    envWith(`${APP_TAGGING_VARIABLE}=\n${FORMER_SWITCH}=on\n`),
+  );
+
+  expect(empty.on).toBe(false);
+  expect(empty.message).not.toContain(FORMER_SWITCH);
+  // The line under the setting's own name is the one that counts.
+  expect(renamed.on).toBe(true);
+  expect(renamed.message).not.toContain(FORMER_SWITCH);
+  expect(onlyFormer.on).toBe(false);
 });
 
 test("the environment is never where the key comes from, under either name", () => {
@@ -173,14 +237,12 @@ test("the key's file is the repo's .env, and a moved data directory has its own"
   const repoRoot = join(import.meta.dirname, "../../..");
 
   expect(envFilePath({})).toBe(join(repoRoot, ".env"));
-  expect(envFilePath({ X_BOOKMARKS_DATA_DIR: "" })).toBe(
-    join(repoRoot, ".env"),
-  );
+  expect(envFilePath({ CURIO_DATA_DIR: "" })).toBe(join(repoRoot, ".env"));
   // A test or a tool that works on another library never finds the owner's key.
-  expect(envFilePath({ X_BOOKMARKS_DATA_DIR: "/somewhere/else" })).toBe(
+  expect(envFilePath({ CURIO_DATA_DIR: "/somewhere/else" })).toBe(
     "/somewhere/else/.env",
   );
-  expect(dataDirectory({ X_BOOKMARKS_DATA_DIR: "/somewhere/else" })).toBe(
+  expect(dataDirectory({ CURIO_DATA_DIR: "/somewhere/else" })).toBe(
     "/somewhere/else",
   );
   expect(dataDirectory({})).toBe(join(repoRoot, "data"));

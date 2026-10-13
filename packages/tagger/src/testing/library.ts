@@ -10,8 +10,8 @@ import {
   insertRawCapture,
   type Store,
   upsertBookmark,
-} from "@x-bookmarks/core";
-import { openTempStore, tempDatabasePath } from "@x-bookmarks/core/testing";
+} from "@curio/core";
+import { openTempStore, tempDatabasePath } from "@curio/core/testing";
 import { APP_TAGGING_VARIABLE, ENV_FILE, KEY_VARIABLE } from "../api-key.ts";
 import { FAKE_KEY } from "./fake-api.ts";
 

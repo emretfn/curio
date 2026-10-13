@@ -4,7 +4,7 @@
  * core's (`listTagProposals`, `listTags`); this file asks for them and
  * holds no grouping, likeness or count of its own (LAB-8).
  */
-import type { Store } from "@x-bookmarks/core";
+import type { Store } from "@curio/core";
 import { listTagProposals, listTags, MAX_TAG_PROPOSALS } from "./core.ts";
 
 /** One subject the classifier proposed a tag for. */

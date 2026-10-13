@@ -23,8 +23,8 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openStore } from "@x-bookmarks/core";
-import { APP_ORIGIN, EXTENSION_ID } from "@x-bookmarks/extension";
+import { openStore } from "@curio/core";
+import { APP_ORIGIN, EXTENSION_ID } from "@curio/extension";
 import { type BrowserContext, chromium, type Page } from "playwright";
 import {
   appIsBuilt,
@@ -249,7 +249,7 @@ if (build || !appIsBuilt()) {
   buildApp();
 }
 
-const scratch = mkdtempSync(join(tmpdir(), "x-bookmarks-screenshots-"));
+const scratch = mkdtempSync(join(tmpdir(), "curio-screenshots-"));
 const data = join(scratch, "data");
 const extension = join(scratch, "extension");
 mkdirSync(data, { mode: 0o700 });

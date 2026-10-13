@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { Store } from "@x-bookmarks/core";
+import type { Store } from "@curio/core";
 import { openStore } from "./core.ts";
 import { dataDirectory } from "./data-directory.ts";
 import { loadOrCreateToken } from "./token.ts";
@@ -13,11 +13,11 @@ interface Shared {
 // Kept on globalThis because Next evaluates this module once per server layer
 // (pages, route handlers), and again on every edit in development. The
 // process must still open the database once.
-const shared = globalThis as typeof globalThis & { __xBookmarks?: Shared };
+const shared = globalThis as typeof globalThis & { __curio?: Shared };
 
 function state(): Shared {
-  shared.__xBookmarks ??= {};
-  return shared.__xBookmarks;
+  shared.__curio ??= {};
+  return shared.__curio;
 }
 
 /** The process-wide store, opened on first use. */

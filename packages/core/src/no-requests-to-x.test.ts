@@ -80,7 +80,7 @@ const NODE_MODULES = "https?|http2|net|tls|dgram|dns|child_process";
  * list beside the file that sends.
  */
 const PACKAGES =
-  "undici|axios|got|ky|node-fetch|superagent|needle|request|ws|playwright|playwright-core|puppeteer|puppeteer-core|selenium-webdriver|jsdom|open|@modelcontextprotocol/[a-z-]+|@anthropic-ai/[a-z-]+|@x-bookmarks/tagger";
+  "undici|axios|got|ky|node-fetch|superagent|needle|request|ws|playwright|playwright-core|puppeteer|puppeteer-core|selenium-webdriver|jsdom|open|@modelcontextprotocol/[a-z-]+|@anthropic-ai/[a-z-]+|@curio/tagger";
 
 /**
  * Anything that makes a request or has a browser make one: the request
@@ -425,9 +425,9 @@ test.each([
   ["Anthropic's SDK as a dependency", '"@anthropic-ai/sdk": "^0.133.0"'],
   [
     "the classifier, which uses that SDK",
-    'const { tagNewBookmarks } = await import("@x-bookmarks/tagger");',
+    'const { tagNewBookmarks } = await import("@curio/tagger");',
   ],
-  ["the classifier as a dependency", '"@x-bookmarks/tagger": "workspace:*"'],
+  ["the classifier as a dependency", '"@curio/tagger": "workspace:*"'],
   [
     "an image the user's browser would load",
     "<img src={media.imageUrl} alt={media.altText} />",

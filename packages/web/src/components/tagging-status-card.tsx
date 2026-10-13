@@ -1,4 +1,4 @@
-import type { TaggingRun, TaggingSummary } from "@x-bookmarks/core";
+import type { TaggingRun, TaggingSummary } from "@curio/core";
 import Link from "next/link";
 import {
   Card,
@@ -193,7 +193,7 @@ export function TaggingStatusCard({
 
         <div className="flex flex-col gap-2">
           <p className="text-muted-foreground">
-            To classify, in a terminal in the x-bookmarks folder:
+            To classify, in a terminal in the Curio folder:
           </p>
           <dl
             data-testid="tagging-command"

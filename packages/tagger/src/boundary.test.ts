@@ -155,22 +155,53 @@ test("the client is built once, with the key it is handed and the address writte
   ]);
 });
 
-test("the key has a name of this project's own, and both names are written in one file", () => {
-  // Every variable of Anthropic's, and this project's one for the key.
+test("the key has a name of this project's own, and every name for it is written in one file", () => {
+  // Every variable of Anthropic's, this project's one for the key, and the
+  // name that one had before the project was renamed.
   expect(holding(/ANTHROPIC_[A-Z_]+/)).toEqual([
     "packages/tagger/src/api-key.ts",
   ]);
   const keyFile = readFileSync(join(import.meta.dirname, "api-key.ts"), "utf8");
   expect([...new Set(keyFile.match(/[A-Z_]*ANTHROPIC_[A-Z_]+/g))]).toEqual([
     "ANTHROPIC_API_KEY",
+    "CURIO_ANTHROPIC_API_KEY",
     "X_BOOKMARKS_ANTHROPIC_API_KEY",
   ]);
   expect(keyFile).toMatch(
-    /export const KEY_VARIABLE = "X_BOOKMARKS_ANTHROPIC_API_KEY";/,
+    /export const KEY_VARIABLE = "CURIO_ANTHROPIC_API_KEY";/,
   );
   // The standard name is a constant used to look for a stray key, to warn.
   expect(keyFile).toMatch(/const STANDARD_VARIABLE = "ANTHROPIC_API_KEY";/);
   expect(keyFile.match(/"ANTHROPIC_API_KEY"/g)).toHaveLength(1);
+});
+
+test("the names from before the project was renamed are written in one file, and are looked for only to say which line to rename", () => {
+  // No setting is read under a former name, anywhere: the one file that
+  // spells them holds each as a constant.
+  expect(holding(/x[-_]bookmarks/i)).toEqual([
+    "packages/tagger/src/api-key.ts",
+  ]);
+  const keyFile = readFileSync(join(import.meta.dirname, "api-key.ts"), "utf8");
+  expect(keyFile.match(/"X_BOOKMARKS_\w+"/g)).toEqual([
+    '"X_BOOKMARKS_ANTHROPIC_API_KEY"',
+    '"X_BOOKMARKS_APP_TAGGING"',
+  ]);
+  expect(keyFile).toMatch(
+    /const FORMER_KEY_NAME = "X_BOOKMARKS_ANTHROPIC_API_KEY";/,
+  );
+  expect(keyFile).toMatch(
+    /const FORMER_SWITCH_NAME = "X_BOOKMARKS_APP_TAGGING";/,
+  );
+  // Each constant is handed to one function, which answers with the number
+  // of a line and nothing of what the line holds. Neither reaches
+  // `valuesOf`, so a value under a former name is never a key or a yes.
+  expect(keyFile.match(/\w+\([^()]*\bFORMER_\w+\)/g)).toEqual([
+    "lineSetting(text, FORMER_KEY_NAME)",
+    "lineSetting(text, FORMER_SWITCH_NAME)",
+  ]);
+  expect(keyFile).toMatch(
+    /function lineSetting\(text: string, variable: string\): number \| undefined/,
+  );
 });
 
 test("the key is read from the file, never from an environment, and nothing puts it in one", () => {
@@ -179,8 +210,8 @@ test("the key is read from the file, never from an environment, and nothing puts
   // The only things asked of an environment there: where the data directory
   // is, and whether the standard variable is set.
   expect(keyFile.match(/environment(?:\.\w+|\[\w+\])/g)?.toSorted()).toEqual([
-    "environment.X_BOOKMARKS_DATA_DIR",
-    "environment.X_BOOKMARKS_DATA_DIR",
+    "environment.CURIO_DATA_DIR",
+    "environment.CURIO_DATA_DIR",
     "environment[STANDARD_VARIABLE]",
   ]);
   // Nowhere in the repo is either name read off an environment by name, or
@@ -237,10 +268,7 @@ test("the example is committed without a value, and git ignores the real file an
   );
 
   // The switch for the app's own tagging is committed empty, which is off.
-  expect(settings).toEqual([
-    "X_BOOKMARKS_ANTHROPIC_API_KEY=",
-    "X_BOOKMARKS_APP_TAGGING=",
-  ]);
+  expect(settings).toEqual(["CURIO_ANTHROPIC_API_KEY=", "CURIO_APP_TAGGING="]);
   expect(example).not.toMatch(/sk-ant-/);
   expect(ignored).toContain(".env");
   expect(ignored).toContain(".env.*");
@@ -248,13 +276,13 @@ test("the example is committed without a value, and git ignores the real file an
 });
 
 test("the classifier is set going by its own command and by the app's tagging module, and by nothing else", () => {
-  expect(dependingOn(/^@x-bookmarks\/tagger$/)).toEqual([
+  expect(dependingOn(/^@curio\/tagger$/)).toEqual([
     "packages/web/package.json",
   ]);
   const importing = (entry: string) =>
     holding(
       new RegExp(
-        `(?:from|import)\\s*\\(?\\s*(?:/\\*[^*]*\\*/\\s*)?["']@x-bookmarks/tagger${entry}["']`,
+        `(?:from|import)\\s*\\(?\\s*(?:/\\*[^*]*\\*/\\s*)?["']@curio/tagger${entry}["']`,
       ),
     );
   // The app loads the entry that holds the pass and the owner's setting,
@@ -270,12 +298,12 @@ test("the classifier is set going by its own command and by the app's tagging mo
 test("the app's own tagging is switched by a line of the owner's file, which one function reads and nothing writes", () => {
   // One source file names the setting. No page, route or component does, so
   // none can read it another way, and there is nothing to set.
-  expect(holding(/X_BOOKMARKS_APP_TAGGING/)).toEqual([
+  expect(holding(/CURIO_APP_TAGGING/)).toEqual([
     "packages/tagger/src/api-key.ts",
   ]);
   const keyFile = readFileSync(join(import.meta.dirname, "api-key.ts"), "utf8");
   expect(keyFile).toMatch(
-    /export const APP_TAGGING_VARIABLE = "X_BOOKMARKS_APP_TAGGING";/,
+    /export const APP_TAGGING_VARIABLE = "CURIO_APP_TAGGING";/,
   );
   // It is read out of the file's text, by the function that reads the key's
   // line, and never off an environment (the test above lists everything
@@ -284,7 +312,7 @@ test("the app's own tagging is switched by a line of the owner's file, which one
     "APP_TAGGING_VARIABLE)",
   ]);
   expect(keyFile).toMatch(
-    /valuesOf\(readFileSync\(path, "utf8"\), APP_TAGGING_VARIABLE\)/,
+    /text = readFileSync\(path, "utf8"\);[^;]*const values = valuesOf\(text, APP_TAGGING_VARIABLE\);/,
   );
   expect(holding(/\[\s*APP_TAGGING_VARIABLE\s*\]/)).toEqual([]);
   // Nothing in the classifier writes a file at all, the .env file least of
@@ -334,7 +362,7 @@ test("the entry the app loads holds neither the client nor the run until a pass 
     "instructions.ts",
   ]);
   expect([...outside].toSorted()).toEqual([
-    "@x-bookmarks/core",
+    "@curio/core",
     "node:crypto",
     "node:fs",
     "node:path",
@@ -377,7 +405,7 @@ test("the weekly digest is written by its own command and by nothing else: not t
   ).toEqual([]);
   const exported = readFileSync(join(import.meta.dirname, "index.ts"), "utf8");
   expect(exported).not.toMatch(/digest/i);
-  // Nor does the entry the app loads, `@x-bookmarks/tagger/automatic`: no
+  // Nor does the entry the app loads, `@curio/tagger/automatic`: no
   // file of the classifier imports one of the digest's, so nothing that
   // entry reaches, at once or inside a pass, leads there. The digest
   // imports the classifier's files, never the other way about.

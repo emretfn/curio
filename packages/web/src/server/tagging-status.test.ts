@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { openTempStore, tempDatabasePath } from "@x-bookmarks/core/testing";
-import { APP_ORIGIN } from "@x-bookmarks/extension";
+import { openTempStore, tempDatabasePath } from "@curio/core/testing";
+import { APP_ORIGIN } from "@curio/extension";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { tagNow } from "./tagging.ts";
 import { handleTaggingStatus } from "./tagging-status.ts";
@@ -15,12 +15,12 @@ let path: string;
 beforeEach(() => {
   path = tempDatabasePath();
   data = dirname(path);
-  vi.stubEnv("X_BOOKMARKS_DATA_DIR", data);
+  vi.stubEnv("CURIO_DATA_DIR", data);
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
-  delete (globalThis as { __xBookmarksTagging?: unknown }).__xBookmarksTagging;
+  delete (globalThis as { __curioTagging?: unknown }).__curioTagging;
 });
 
 const request = (headers: Record<string, string> = {}) =>
@@ -101,7 +101,7 @@ test("it says tagging by the app is off unless the owner's file turns it on, how
     (await (await handleTaggingStatus(request(), store)).json()).appTagging;
 
   const byDefault = await read();
-  writeFileSync(join(data, ".env"), "X_BOOKMARKS_APP_TAGGING=on\n", {
+  writeFileSync(join(data, ".env"), "CURIO_APP_TAGGING=on\n", {
     mode: 0o600,
   });
   const turnedOn = await read();
@@ -109,7 +109,7 @@ test("it says tagging by the app is off unless the owner's file turns it on, how
   expect(byDefault.on).toBe(false);
   expect(byDefault.message).toMatch(/^Tagging by the app is off/);
   expect(byDefault.message).toContain(
-    `add the line X_BOOKMARKS_APP_TAGGING=on to ${join(data, ".env")}`,
+    `add the line CURIO_APP_TAGGING=on to ${join(data, ".env")}`,
   );
   expect(byDefault.message).toContain("pnpm tag");
   expect(turnedOn.on).toBe(true);
@@ -119,12 +119,12 @@ test("it says tagging by the app is off unless the owner's file turns it on, how
 test("no request turns the app's tagging on: the route reads, whatever it is sent", async () => {
   const store = openTempStore(path);
   const asked = new Request(
-    `${APP_ORIGIN}/api/tagging?appTagging=on&X_BOOKMARKS_APP_TAGGING=on`,
+    `${APP_ORIGIN}/api/tagging?appTagging=on&CURIO_APP_TAGGING=on`,
     {
       headers: {
         host: HOST,
         "sec-fetch-site": "same-origin",
-        "x-bookmarks-app-tagging": "on",
+        "curio-app-tagging": "on",
       },
     },
   );

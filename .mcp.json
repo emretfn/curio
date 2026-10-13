@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "x-bookmarks": {
+    "curio": {
       "command": "node",
       "args": ["${CLAUDE_PROJECT_DIR:-.}/packages/mcp/src/main.ts"]
     }

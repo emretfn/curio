@@ -86,16 +86,14 @@ You need:
 - Chrome 130 or later, on the same computer.
 
 ```
-git clone https://github.com/emretfn/curio.git x-bookmarks
-cd x-bookmarks
+git clone https://github.com/emretfn/curio.git
+cd curio
 pnpm install
 ```
 
-`x-bookmarks` is the project's working name from before it was called Curio. The packages (`@x-bookmarks/*`), the settings (`X_BOOKMARKS_*`) and the paths in the other READMEs still use it, which is why the clone is given that name here.
-
 1. **Start the app: `pnpm app`.** It builds, which takes about a minute the first time, and then serves <http://127.0.0.1:47130>. Leave it running. The library is empty and says how it fills.
 2. **Build the extension:** in a second terminal, in the same folder, `pnpm extension:build`.
-3. **Load it.** In Chrome open `chrome://extensions`, switch on **Developer mode**, press **Load unpacked** and choose the folder `packages/extension/dist`. Chrome lists it as "Curio capture". Pin its icon, a small blue cabinet, to the toolbar.
+3. **Load it.** In Chrome open `chrome://extensions`, switch on **Developer mode**, press **Load unpacked** and choose the folder `packages/extension/dist`. Chrome lists it as "Curio capture". Pin its icon to the toolbar.
 4. **Pair.** In a second terminal, run `pnpm pair`. Click the extension's icon and paste the token it prints into the popup, then press **Pair**. The popup reads "Paired. Nothing captured yet".
 5. **Capture.** Open your bookmarks on x.com, reloading the tab if it was open before the extension was loaded, and scroll to the bottom by hand at the pace you would read. X loads 20 bookmarks at a step and the popup counts each one; 3,000 bookmarks is about a quarter of an hour.
 6. **Look.** <http://127.0.0.1:47130> lists them, and <http://127.0.0.1:47130/status> says how many responses were stored and understood. "Captures failed" and "Entries failed" should read 0.
@@ -126,7 +124,7 @@ Capture, search, the filters by author, language, media and date, the weekly pag
 Each run has a spend cap it cannot exceed ($2 for a tagging run and $0.50 for a digest unless you say otherwise), and both have a dry run that sends nothing and needs no key:
 
 ```
-cp .env.example .env && chmod 600 .env    # then paste your key after X_BOOKMARKS_ANTHROPIC_API_KEY=
+cp .env.example .env && chmod 600 .env    # then paste your key after CURIO_ANTHROPIC_API_KEY=
 pnpm tag --dry-run        # what a run would send and cost
 pnpm tag --sample 50      # classify 50, and read whether you agree
 pnpm tag                  # classify the rest
@@ -136,7 +134,7 @@ pnpm digest               # write the week that last ended
 
 The key's variable is named for this project on purpose. Do not call it `ANTHROPIC_API_KEY`: under that name a key silently bills your Claude Code work to the API wherever it is set.
 
-Nothing spends by itself. Every run above is one you typed. The app can keep up with new bookmarks on its own, at most $0.10 a pass and $0.30 a day, only if you add the line `X_BOOKMARKS_APP_TAGGING=on` to `.env` by hand; no screen can turn that on. A digest can be scheduled weekly with a launchd job that you install yourself.
+Nothing spends by itself. Every run above is one you typed. The app can keep up with new bookmarks on its own, at most $0.10 a pass and $0.30 a day, only if you add the line `CURIO_APP_TAGGING=on` to `.env` by hand; no screen can turn that on. A digest can be scheduled weekly with a launchd job that you install yourself.
 
 Without a key you can still file bookmarks by hand, from the same menus. [The tagger's README](packages/tagger/README.md) has the commands in order, exactly what is sent, and what a run guarantees.
 
@@ -144,13 +142,13 @@ Without a key you can still file bookmarks by hand, from the same menus. [The ta
 
 `packages/mcp` is a local [MCP](https://modelcontextprotocol.io) server over standard input and output. It opens the database read-only, makes no network request, and runs on the Claude subscription you already use: there is no API key.
 
-In Claude Code, start `claude` in the repository's folder and approve the project's server, which is registered as `x-bookmarks`. Then ask, for example, "what did I bookmark about SQLite backups?". For Claude Desktop, and to have it in every project, see [the MCP server's README](packages/mcp/README.md).
+In Claude Code, start `claude` in the repository's folder and approve the project's server, which is registered as `curio`. Then ask, for example, "what did I bookmark about SQLite backups?". For Claude Desktop, and to have it in every project, see [the MCP server's README](packages/mcp/README.md).
 
 Six tools: search, list, one bookmark in full, an overview of the library, a week's digest, and the posts X no longer sends. Bookmark text was written by strangers, so every result is marked as quoted material and the server has nothing it can write with.
 
 ## Backups
 
-The captured responses cannot be collected again, so the app takes a snapshot of the whole database once a day, when the library has changed, and checks each one before keeping it. Snapshots go in `../x-bookmarks-backups`, beside the repository and outside it; the newest ten are kept. `pnpm backup` takes one now, and `X_BOOKMARKS_BACKUP_DIR` puts them on another disk. A backup that fails is said on every screen until one succeeds. Restoring is in [the app's README](packages/web/README.md#backups).
+The captured responses cannot be collected again, so the app takes a snapshot of the whole database once a day, when the library has changed, and checks each one before keeping it. Snapshots go beside the repository and outside it, in a folder named after it (`../curio-backups` for a clone in `curio`); the newest ten are kept. `pnpm backup` takes one now, and `CURIO_BACKUP_DIR` puts them on another disk. A backup that fails is said on every screen until one succeeds. Restoring is in [the app's README](packages/web/README.md#backups).
 
 ## What you are trusting and risking
 
@@ -182,7 +180,7 @@ pnpm test
 pnpm e2e        # the built extension in a real Chromium against a fake X; about three minutes
 ```
 
-`pnpm e2e` needs Playwright's browser once: `pnpm --filter @x-bookmarks/e2e exec playwright install chromium`. No test, and nothing else here, asks X for anything or calls the Claude API.
+`pnpm e2e` needs Playwright's browser once: `pnpm --filter @curio/e2e exec playwright install chromium`. No test, and nothing else here, asks X for anything or calls the Claude API.
 
 | Package | What it is |
 |---|---|

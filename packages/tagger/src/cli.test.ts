@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { addTag, recordClassification, retireTag } from "@x-bookmarks/core";
+import { addTag, recordClassification, retireTag } from "@curio/core";
 import { expect, test } from "vitest";
 import { INSTRUCTIONS_VERSION } from "./instructions.ts";
 import { FAKE_KEY } from "./testing/fake-api.ts";
@@ -33,7 +33,7 @@ function tag(lib: TestLibrary, ...args: string[]) {
         ...process.env,
         // A moved data directory has its own .env: the command never looks
         // at the repo's, where the owner's key is.
-        X_BOOKMARKS_DATA_DIR: lib.directory,
+        CURIO_DATA_DIR: lib.directory,
         // Set, to show that it is neither read as the key nor passed on.
         ANTHROPIC_API_KEY: "sk-ant-api03-FROM0THE0ENVIRONMENT0000000000",
         ...environment,
@@ -94,7 +94,7 @@ test("without a .env file a run refuses, says how to make one, and says the envi
   expect(run.status).toBe(1);
   expect(run.stderr).toContain(lib.envFile);
   expect(run.stderr).toMatch(/Copy \.env\.example/);
-  expect(run.stderr).toMatch(/X_BOOKMARKS_ANTHROPIC_API_KEY=/);
+  expect(run.stderr).toMatch(/CURIO_ANTHROPIC_API_KEY=/);
   // The environment's key was noticed, said to be unused, and not shown.
   expect(run.stderr).toMatch(
     /ANTHROPIC_API_KEY is set in this environment\. It was not used/,
@@ -105,7 +105,7 @@ test("without a .env file a run refuses, says how to make one, and says the envi
 test("this project's variable in the environment is not where the key is read from either", () => {
   const lib = library(3);
   lib.store.close();
-  environment = { X_BOOKMARKS_ANTHROPIC_API_KEY: FAKE_KEY };
+  environment = { CURIO_ANTHROPIC_API_KEY: FAKE_KEY };
 
   const run = tag(lib, "--check");
   environment = {};
@@ -135,9 +135,7 @@ test("a key under the standard name in .env is refused, with the name to give it
   const run = tag(lib, "--check");
 
   expect(run.status).toBe(1);
-  expect(run.stderr).toMatch(
-    /Rename the line to X_BOOKMARKS_ANTHROPIC_API_KEY=/,
-  );
+  expect(run.stderr).toMatch(/Rename the line to CURIO_ANTHROPIC_API_KEY=/);
   expect(run.stderr).toMatch(
     /ANTHROPIC_API_KEY is set in this environment and in /,
   );
@@ -155,7 +153,7 @@ test("--check passes a safe .env without a request, and says that is all it show
 
   expect(checked.status).toBe(0);
   expect(checked.stdout).toContain(
-    `X_BOOKMARKS_ANTHROPIC_API_KEY is set in ${lib.envFile}, and the file is readable by you alone.`,
+    `CURIO_ANTHROPIC_API_KEY is set in ${lib.envFile}, and the file is readable by you alone.`,
   );
   expect(checked.stdout).toMatch(/No request was made/);
   // A key in place does not turn the app's own tagging on, and the check says so.
@@ -174,13 +172,13 @@ test("--status and --proposals read the library and change nothing", () => {
   expect(status.status).toBe(0);
   expect(status.stdout).toMatch(/Not classified yet\s+4/);
   expect(status.stdout).toContain(
-    `Tagging by the app is off: by itself the app sends nothing to the API and spends nothing. To turn it on, add the line X_BOOKMARKS_APP_TAGGING=on to ${lib.envFile}`,
+    `Tagging by the app is off: by itself the app sends nothing to the API and spends nothing. To turn it on, add the line CURIO_APP_TAGGING=on to ${lib.envFile}`,
   );
   writeKey(lib.directory, { appTagging: true });
   const turnedOn = tag(lib, "--status");
   expect(turnedOn.stdout).toMatch(/Tagging by the app is on/);
   expect(turnedOn.stdout).toContain(
-    `remove X_BOOKMARKS_APP_TAGGING=on from ${lib.envFile}`,
+    `remove CURIO_APP_TAGGING=on from ${lib.envFile}`,
   );
   expect(turnedOn.output).not.toContain(FAKE_KEY);
   expect(proposals.stdout).toMatch(

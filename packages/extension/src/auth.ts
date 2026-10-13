@@ -9,13 +9,13 @@
  * both have.
  */
 
-export const SIGNATURE_SCHEME = "XB1-HMAC-SHA256";
+export const SIGNATURE_SCHEME = "CURIO1-HMAC-SHA256";
 /** A fresh random value per request, which the app's proof must cover. */
-export const NONCE_HEADER = "x-xb-nonce";
+export const NONCE_HEADER = "x-curio-nonce";
 /** SHA-256 of the request body, so the signature can be checked before the body is read. */
-export const BODY_DIGEST_HEADER = "x-xb-body-sha256";
+export const BODY_DIGEST_HEADER = "x-curio-body-sha256";
 /** The app's signature over its answer. */
-export const PROOF_HEADER = "x-xb-proof";
+export const PROOF_HEADER = "x-curio-proof";
 
 export interface SignedRequest {
   method: string;

@@ -31,9 +31,7 @@ export function placeKey(): string | null {
   const entry = (
     window as { navigation?: { currentEntry?: { key?: string } | null } }
   ).navigation?.currentEntry;
-  return typeof entry?.key === "string"
-    ? `x-bookmarks:place:${entry.key}`
-    : null;
+  return typeof entry?.key === "string" ? `curio:place:${entry.key}` : null;
 }
 
 export function readPlace(search: string): Place | null {

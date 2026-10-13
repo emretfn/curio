@@ -213,11 +213,11 @@
   async function hookEventHeard() {
     const heard = [];
     const listen = (event) => heard.push(typeof event.detail);
-    addEventListener("x-bookmarks:hook", listen);
+    addEventListener("curio:hook", listen);
     await xhrShape({ url: BOOKMARKS });
     await xhrShape({ url: `${GQL}/HomeTimeline` });
     await sleep(200);
-    removeEventListener("x-bookmarks:hook", listen);
+    removeEventListener("curio:hook", listen);
     return heard;
   }
 

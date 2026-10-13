@@ -1,4 +1,4 @@
-import { type Bookmark, excerpt } from "@x-bookmarks/core";
+import { type Bookmark, excerpt } from "@curio/core";
 import { expect, test } from "vitest";
 import {
   bookmarkDetail,

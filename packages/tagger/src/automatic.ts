@@ -35,7 +35,7 @@ import {
   listClassificationCandidates,
   type Store,
   summariseTaggingSpend,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 // Types alone from the client and the run: both are loaded inside a pass
 // that is allowed to send, and not before. boundary.test.ts pins it.
 import type { Claude } from "./anthropic.ts";

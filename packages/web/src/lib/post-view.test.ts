@@ -1,4 +1,4 @@
-import { type Bookmark, isXOwnedHost, MAX_PAGE_SIZE } from "@x-bookmarks/core";
+import { type Bookmark, isXOwnedHost, MAX_PAGE_SIZE } from "@curio/core";
 import { expect, test } from "vitest";
 import { type LibraryBookmark, listLibrary } from "../server/library.ts";
 import {

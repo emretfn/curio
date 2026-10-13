@@ -11,7 +11,7 @@ import {
   startTaggingRun,
   summariseTagging,
   summariseTaggingSpend,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 import { expect, test, vi } from "vitest";
 import { type Claude, createClaude } from "./anthropic.ts";
 import {
@@ -67,7 +67,7 @@ test("unless the owner has turned it on, a pass sends nothing, does not open the
   expect(result.message).toMatch(/^Tagging by the app is off/);
   // How to turn it on, where, and what does the same by hand.
   expect(result.message).toContain(
-    `add the line X_BOOKMARKS_APP_TAGGING=on to ${lib.envFile}`,
+    `add the line CURIO_APP_TAGGING=on to ${lib.envFile}`,
   );
   expect(result.message).toContain("pnpm tag classifies what is waiting");
   expect(result.message).toContain("pnpm tag --new-tags");
@@ -96,22 +96,19 @@ test("with no .env file at all the app's tagging is off, not missing a key", asy
 });
 
 test.each([
-  ["an empty value", "X_BOOKMARKS_APP_TAGGING=\n"],
-  ["off", "X_BOOKMARKS_APP_TAGGING=off\n"],
-  ["true, which is not the word", "X_BOOKMARKS_APP_TAGGING=true\n"],
-  ["1", "X_BOOKMARKS_APP_TAGGING=1\n"],
-  ["a line commented out", "# X_BOOKMARKS_APP_TAGGING=on\n"],
-  [
-    "two lines that disagree",
-    "X_BOOKMARKS_APP_TAGGING=on\nX_BOOKMARKS_APP_TAGGING=off\n",
-  ],
-  ["another variable that ends the same", "NOT_X_BOOKMARKS_APP_TAGGING=on\n"],
+  ["an empty value", "CURIO_APP_TAGGING=\n"],
+  ["off", "CURIO_APP_TAGGING=off\n"],
+  ["true, which is not the word", "CURIO_APP_TAGGING=true\n"],
+  ["1", "CURIO_APP_TAGGING=1\n"],
+  ["a line commented out", "# CURIO_APP_TAGGING=on\n"],
+  ["two lines that disagree", "CURIO_APP_TAGGING=on\nCURIO_APP_TAGGING=off\n"],
+  ["another variable that ends the same", "NOT_CURIO_APP_TAGGING=on\n"],
 ])(
   "only the word on turns the app's tagging on: %s leaves it off",
   async (_, line) => {
     const lib = library(2);
     writeKey(lib.directory, {
-      content: `X_BOOKMARKS_ANTHROPIC_API_KEY=${FAKE_KEY}\n${line}`,
+      content: `CURIO_ANTHROPIC_API_KEY=${FAKE_KEY}\n${line}`,
     });
     const { api, keys, pass } = setup(lib);
 
@@ -122,16 +119,13 @@ test.each([
 );
 
 test.each([
-  ["as written", "X_BOOKMARKS_APP_TAGGING=on\n"],
-  ["in capitals", "X_BOOKMARKS_APP_TAGGING=ON\n"],
-  [
-    "quoted, exported and commented",
-    'export X_BOOKMARKS_APP_TAGGING="on" # mine\n',
-  ],
+  ["as written", "CURIO_APP_TAGGING=on\n"],
+  ["in capitals", "CURIO_APP_TAGGING=ON\n"],
+  ["quoted, exported and commented", 'export CURIO_APP_TAGGING="on" # mine\n'],
 ])("the owner's line turns it on: %s", async (_, line) => {
   const lib = library(2);
   writeKey(lib.directory, {
-    content: `X_BOOKMARKS_ANTHROPIC_API_KEY=${FAKE_KEY}\n${line}`,
+    content: `CURIO_ANTHROPIC_API_KEY=${FAKE_KEY}\n${line}`,
   });
   const { api, pass } = setup(lib);
 
@@ -158,7 +152,7 @@ test("a .env file that cannot be read leaves the app's tagging off", async () =>
 test("the setting is read from the file and never from an environment", async () => {
   const lib = library(2);
   writeKey(lib.directory);
-  vi.stubEnv("X_BOOKMARKS_APP_TAGGING", "on");
+  vi.stubEnv("CURIO_APP_TAGGING", "on");
   const { api, pass } = setup(lib);
 
   expect((await pass()).status).toBe("off");
@@ -262,7 +256,7 @@ test.each([
       [join(import.meta.dirname, "testing/what-a-pass-loads.ts"), lib.path],
       {
         encoding: "utf8",
-        env: { ...process.env, X_BOOKMARKS_DATA_DIR: lib.directory },
+        env: { ...process.env, CURIO_DATA_DIR: lib.directory },
       },
     );
     expect(stderr).toBe("");
@@ -294,13 +288,13 @@ test.each([
   ],
   [
     "with no data directory of its own, where the repo's .env would be read",
-    { X_BOOKMARKS_DATA_DIR: undefined },
-    /X_BOOKMARKS_DATA_DIR is not set/,
+    { CURIO_DATA_DIR: undefined },
+    /CURIO_DATA_DIR is not set/,
   ],
   [
     "on a library outside that data directory",
-    { X_BOOKMARKS_DATA_DIR: "/somewhere/else" },
-    /must be the one in X_BOOKMARKS_DATA_DIR/,
+    { CURIO_DATA_DIR: "/somewhere/else" },
+    /must be the one in CURIO_DATA_DIR/,
   ],
 ])(
   "the script that lists what a pass loads refuses to run %s, before it opens anything",
@@ -311,7 +305,7 @@ test.each([
     lib.store.close();
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      X_BOOKMARKS_DATA_DIR: lib.directory,
+      CURIO_DATA_DIR: lib.directory,
       ...changes,
     };
     for (const [name, value] of Object.entries(changes)) {
@@ -340,7 +334,7 @@ test("the script that lists what a pass loads makes no client, whatever its .env
     [join(import.meta.dirname, "testing/what-a-pass-loads.ts"), lib.path],
     {
       encoding: "utf8",
-      env: { ...process.env, X_BOOKMARKS_DATA_DIR: lib.directory },
+      env: { ...process.env, CURIO_DATA_DIR: lib.directory },
     },
   );
 
@@ -389,7 +383,7 @@ test("with the app's tagging on and no key, a pass does nothing, says why, and r
     warning: null,
   });
   expect(result.message).toContain(lib.envFile);
-  expect(result.message).toContain("X_BOOKMARKS_ANTHROPIC_API_KEY");
+  expect(result.message).toContain("CURIO_ANTHROPIC_API_KEY");
   expect(api.sent).toEqual([]);
   expect(keys).toEqual([]);
   expect(summariseTagging(lib.store)).toMatchObject({
@@ -406,7 +400,7 @@ test("a key under the standard name is not used, in the file or in the environme
   });
   const both = library(2);
   writeKey(both.directory, {
-    content: `ANTHROPIC_API_KEY=${standard}\nX_BOOKMARKS_ANTHROPIC_API_KEY=${FAKE_KEY}\n${APP_TAGGING_ON}`,
+    content: `ANTHROPIC_API_KEY=${standard}\nCURIO_ANTHROPIC_API_KEY=${FAKE_KEY}\n${APP_TAGGING_ON}`,
   });
   vi.stubEnv("ANTHROPIC_API_KEY", standard);
   const without = setup(onlyStandard);

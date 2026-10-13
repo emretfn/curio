@@ -3,7 +3,7 @@
  * system", and `light` or `dark` overrides it. The `dark` class on the root
  * element is what the styles read.
  */
-export const THEME_STORAGE_KEY = "x-bookmarks:theme";
+export const THEME_STORAGE_KEY = "curio:theme";
 
 /**
  * Runs before the first paint, from the layout, so the page never flashes

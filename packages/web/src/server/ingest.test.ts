@@ -7,8 +7,8 @@ import {
   listParseIssues,
   summariseParsing,
   summariseRawCaptures,
-} from "@x-bookmarks/core";
-import { openTempStore, readFixture } from "@x-bookmarks/core/testing";
+} from "@curio/core";
+import { openTempStore, readFixture } from "@curio/core/testing";
 import {
   APP_HOST,
   APP_PORT,
@@ -17,7 +17,7 @@ import {
   type QueuedCapture,
   responseProofIsValid,
   sha256Hex,
-} from "@x-bookmarks/extension";
+} from "@curio/extension";
 import { expect, test, vi } from "vitest";
 import { handleIngest, handlePairingCheck, refusePreflight } from "./ingest.ts";
 import { extensionRequest, NONCE, TOKEN } from "./testing.ts";

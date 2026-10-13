@@ -1,4 +1,4 @@
-import { TAXONOMY, taxonomyFingerprint } from "@x-bookmarks/core";
+import { TAXONOMY, taxonomyFingerprint } from "@curio/core";
 import { expect, test } from "vitest";
 import {
   INSTRUCTIONS_VERSION,

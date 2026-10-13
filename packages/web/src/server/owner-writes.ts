@@ -17,7 +17,7 @@
  * unless the owner has turned the app's own tagging on. The answer says
  * which, when bookmarks are waiting to be asked about a new tag.
  */
-import type { Store } from "@x-bookmarks/core";
+import type { Store } from "@curio/core";
 import { type LabelsView, labelsView } from "../lib/post-view.ts";
 import { counted } from "../lib/words.ts";
 import {

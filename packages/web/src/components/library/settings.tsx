@@ -12,7 +12,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { THEME_STORAGE_KEY } from "@/lib/theme";
 import { setAutoMedia, useAutoMedia } from "./auto-media.ts";
 
-const THEME_CHANGED = "x-bookmarks:theme-changed";
+const THEME_CHANGED = "curio:theme-changed";
 
 type Theme = "system" | "light" | "dark";
 

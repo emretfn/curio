@@ -14,7 +14,7 @@ export interface PlayerSettings {
 /** The speeds on offer, slowest first. Normal speed is among them. */
 export const PLAYBACK_RATES: readonly number[] = [1, 1.25, 1.5, 2];
 
-const STORAGE_KEY = "x-bookmarks:player";
+const STORAGE_KEY = "curio:player";
 const DEFAULTS: PlayerSettings = { volume: 1, muted: false, rate: 1 };
 
 /** The stored choices, or the defaults for whatever is missing or not believable. */

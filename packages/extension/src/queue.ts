@@ -98,7 +98,7 @@ const WAITING = "queue:";
 const REJECTED = "rejected:";
 
 const NOT_PAIRED =
-  "Not paired. Run `pnpm pair` in the x-bookmarks folder and paste the token it prints.";
+  "Not paired. Run `pnpm pair` in the Curio folder and paste the token it prints.";
 const UNREACHABLE = `The app did not answer at ${APP_ORIGIN}. Captures are kept and sent when it is running.`;
 const UNPROVEN = `Whatever answered at ${APP_ORIGIN} did not prove it holds this pairing token, so nothing was sent to it. Either the token is not the app's current one (run \`pnpm pair\` and pair again) or another program is using the app's port.`;
 

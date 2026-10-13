@@ -18,7 +18,7 @@ import {
   type WeekSummary,
   type WithheldPost,
   type WrittenDigest,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 
 /**
  * Opens every result. The tool descriptions and the server's instructions

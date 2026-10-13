@@ -6,7 +6,7 @@
  *   /digest?week=2026-10-05  the week of that Monday; any day of a week
  *                            names it
  */
-import type { Week } from "@x-bookmarks/core";
+import type { Week } from "@curio/core";
 import { latestWeekEnded, weekOf } from "./core.ts";
 import { libraryHref, NO_PARAMS } from "./library-params.ts";
 

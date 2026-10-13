@@ -75,7 +75,7 @@ test("the pairing token itself is never sent", async () => {
   for (const request of app.requests) {
     expect(JSON.stringify(request)).not.toContain(TOKEN);
     expect(request.headers.authorization).toMatch(
-      /^XB1-HMAC-SHA256 [0-9a-f]{64}$/,
+      /^CURIO1-HMAC-SHA256 [0-9a-f]{64}$/,
     );
   }
   // A fresh nonce per request, so no answer can be replayed for another.

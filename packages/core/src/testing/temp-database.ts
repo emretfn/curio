@@ -6,7 +6,7 @@ import { type OpenStoreOptions, openStore, type Store } from "../store.ts";
 
 /** A database path in a fresh temporary directory, removed when the test ends. */
 export function tempDatabasePath(): string {
-  const directory = mkdtempSync(join(tmpdir(), "x-bookmarks-test-"));
+  const directory = mkdtempSync(join(tmpdir(), "curio-test-"));
   onTestFinished(() => rmSync(directory, { recursive: true, force: true }));
   return join(directory, "bookmarks.db");
 }

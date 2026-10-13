@@ -1,5 +1,5 @@
 {
-  "name": "@x-bookmarks/demo",
+  "name": "@curio/demo",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@x-bookmarks/core": "workspace:*",
-    "@x-bookmarks/extension": "workspace:*"
+    "@curio/core": "workspace:*",
+    "@curio/extension": "workspace:*"
   },
   "devDependencies": {
     "playwright": "^1.64.0"

@@ -11,7 +11,7 @@
   __REPO__  the absolute path of this repo
   __HOME__  your home directory, for the log
 
-  It is not the app's own tagging, and X_BOOKMARKS_APP_TAGGING in .env does
+  It is not the app's own tagging, and CURIO_APP_TAGGING in .env does
   not switch it: installing this file is what turns it on, and removing it is
   what turns it off.
 
@@ -23,7 +23,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>dev.x-bookmarks.digest</string>
+  <string>dev.curio.digest</string>
   <key>ProgramArguments</key>
   <array>
     <string>__NODE__</string>
@@ -46,8 +46,8 @@
   <key>ProcessType</key>
   <string>Background</string>
   <key>StandardOutPath</key>
-  <string>__HOME__/Library/Logs/x-bookmarks-digest.log</string>
+  <string>__HOME__/Library/Logs/curio-digest.log</string>
   <key>StandardErrorPath</key>
-  <string>__HOME__/Library/Logs/x-bookmarks-digest.log</string>
+  <string>__HOME__/Library/Logs/curio-digest.log</string>
 </dict>
 </plist>

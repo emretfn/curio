@@ -9,7 +9,7 @@
  * checked again against the taxonomy and the vocabulary when the demo is
  * built, by `recordClassification`.
  */
-import type { CategoryId, FormatId } from "@x-bookmarks/core";
+import type { CategoryId, FormatId } from "@curio/core";
 import type { AuthorKey } from "./authors.ts";
 import type { DemoMedia } from "./timeline.ts";
 

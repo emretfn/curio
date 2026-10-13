@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { DIGEST_LIMITS } from "@x-bookmarks/core";
+import { DIGEST_LIMITS } from "@curio/core";
 import { expect, test } from "vitest";
 import type { ClaudeMessage } from "../anthropic.ts";
 import { digestInput, digestMessageOf } from "./input.ts";

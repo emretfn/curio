@@ -14,7 +14,7 @@ import {
   openStore,
   startDigestRun,
   weekOf,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 import { expect, test } from "vitest";
 import { library, postId, type TestLibrary } from "../testing/library.ts";
 
@@ -32,7 +32,7 @@ function digest(lib: TestLibrary, ...args: string[]) {
         ...process.env,
         // A moved data directory has its own .env: the command never looks
         // at the repo's, where the owner's key is.
-        X_BOOKMARKS_DATA_DIR: lib.directory,
+        CURIO_DATA_DIR: lib.directory,
       },
     },
   );
@@ -166,7 +166,7 @@ test("with no library yet, the command says so and makes none", () => {
 
   const { status, stderr } = spawnSync(process.execPath, [CLI, "--dry-run"], {
     encoding: "utf8",
-    env: { ...process.env, X_BOOKMARKS_DATA_DIR: elsewhere },
+    env: { ...process.env, CURIO_DATA_DIR: elsewhere },
   });
 
   expect(status).toBe(1);

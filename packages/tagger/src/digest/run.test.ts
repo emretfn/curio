@@ -11,8 +11,8 @@ import {
   startDigestRun,
   weekAfter,
   weekOf,
-} from "@x-bookmarks/core";
-import { readFixture } from "@x-bookmarks/core/testing";
+} from "@curio/core";
+import { readFixture } from "@curio/core/testing";
 import { expect, test } from "vitest";
 import { CLAUDE_API_ORIGIN, createClaude } from "../anthropic.ts";
 import {

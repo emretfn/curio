@@ -11,7 +11,7 @@ import { expect, onTestFinished, test } from "vitest";
 import { loadOrCreateToken } from "./token.ts";
 
 function tempDirectory(): string {
-  const directory = mkdtempSync(join(tmpdir(), "x-bookmarks-token-"));
+  const directory = mkdtempSync(join(tmpdir(), "curio-token-"));
   onTestFinished(() => rmSync(directory, { recursive: true, force: true }));
   return directory;
 }

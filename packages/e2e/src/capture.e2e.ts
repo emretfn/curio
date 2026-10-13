@@ -8,7 +8,7 @@
  * process, and the run stops before loading anything if that rule is not in
  * force.
  *
- * Nor does anything here touch an x-bookmarks that is in use on this machine.
+ * Nor does anything here touch a Curio that is in use on this machine.
  * The run builds the extension and the app into directories of its own, keeps
  * its database in a temporary directory, and starts its app on a free port.
  * The extension under test still asks for the app at its fixed address; the
@@ -73,7 +73,7 @@ import {
   TAXONOMY,
   UNCLEAR_FORMAT,
   weekOf,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 import {
   APP_HOST,
   APP_ORIGIN,
@@ -88,7 +88,7 @@ import {
   SIGNATURE_SCHEME,
   sha256Hex,
   signRequest,
-} from "@x-bookmarks/extension";
+} from "@curio/extension";
 import {
   type BrowserContext,
   chromium,
@@ -185,13 +185,13 @@ async function waitFor<T>(
   throw new Error(`Timed out waiting for ${what}.`, { cause: lastError });
 }
 
-const scratch = mkdtempSync(join(tmpdir(), "x-bookmarks-e2e-"));
+const scratch = mkdtempSync(join(tmpdir(), "curio-e2e-"));
 const dataDirectory = join(scratch, "data");
 const extensionDirectory = join(scratch, "extension");
 const appEnvironment = {
   ...process.env,
-  X_BOOKMARKS_DATA_DIR: dataDirectory,
-  X_BOOKMARKS_NEXT_DIR: NEXT_DIRECTORY,
+  CURIO_DATA_DIR: dataDirectory,
+  CURIO_NEXT_DIR: NEXT_DIRECTORY,
 };
 const nextBinary = join(webDirectory, "node_modules/next/dist/bin/next");
 
@@ -451,7 +451,7 @@ const sha256 = (text: string) =>
  */
 async function appAddressLeadsHere(): Promise<void> {
   assert.notEqual(appPort, APP_PORT);
-  const marker = `x-bookmarks e2e ${scratch}`;
+  const marker = `curio e2e ${scratch}`;
   const standIn = createServer((request, response) => {
     response.end(`${marker} ${request.headers.host}`);
   });
@@ -894,7 +894,7 @@ test("a page script that forges the hook's event can plant a capture, but only o
   await xPage.evaluate(() => {
     const fire = (event: unknown) =>
       window.dispatchEvent(
-        new CustomEvent("x-bookmarks:hook", { detail: JSON.stringify(event) }),
+        new CustomEvent("curio:hook", { detail: JSON.stringify(event) }),
       );
     const forged = {
       operation: "Bookmarks",
@@ -915,9 +915,7 @@ test("a page script that forges the hook's event can plant a capture, but only o
       },
     });
     fire({ kind: "capture", capture: { ...forged, payload: { a: 1 } } });
-    window.dispatchEvent(
-      new CustomEvent("x-bookmarks:hook", { detail: forged }),
-    );
+    window.dispatchEvent(new CustomEvent("curio:hook", { detail: forged }));
     // Well-formed: accepted, which is the limit of what this route can check.
     fire({ kind: "capture", capturedAt: forged.capturedAt, capture: forged });
   });
@@ -1447,7 +1445,7 @@ test("the status page shows the library's backups, and every screen says so when
       cwd: webDirectory,
       env: {
         ...appEnvironment,
-        X_BOOKMARKS_BACKUP_DIR: join(blocked, "snapshots"),
+        CURIO_BACKUP_DIR: join(blocked, "snapshots"),
       },
       // It logs the failure, which is the point of it and not of this run.
       stdio: "ignore",
@@ -2580,14 +2578,12 @@ test("a video plays in the library's own player: only a press on play asks for t
   assert.deepEqual(
     JSON.parse(
       (await page.evaluate(() =>
-        window.localStorage.getItem("x-bookmarks:player"),
+        window.localStorage.getItem("curio:player"),
       )) ?? "{}",
     ),
     { volume: 1, muted: true, rate: 1.25 },
   );
-  await page.evaluate(() =>
-    window.localStorage.removeItem("x-bookmarks:player"),
-  );
+  await page.evaluate(() => window.localStorage.removeItem("curio:player"));
 
   // In all of it the video host was asked for that one file and nothing
   // else, plainly, and no other host was asked for anything: the poster was
@@ -2911,7 +2907,7 @@ test("the app tags nothing by itself until the owner's .env says so, and with th
     assert.match(said, /^Tagging by the app is off/);
     // How to turn it on, in which file, and what does the same by hand.
     assert.ok(
-      said.includes(`add the line X_BOOKMARKS_APP_TAGGING=on to ${envFile}`),
+      said.includes(`add the line CURIO_APP_TAGGING=on to ${envFile}`),
       "it says how to turn it on, beside this run's data and not in the repo",
     );
     assert.match(said, /pnpm tag classifies what is waiting/);
@@ -2933,7 +2929,7 @@ test("the app tags nothing by itself until the owner's .env says so, and with th
   assert.equal(posted.status, 405);
   const asked = await requestToApp(
     "GET",
-    "/api/tagging?appTagging=on&X_BOOKMARKS_APP_TAGGING=on",
+    "/api/tagging?appTagging=on&CURIO_APP_TAGGING=on",
   );
   assert.equal(asked.status, 200);
   const still = JSON.parse(
@@ -2944,7 +2940,7 @@ test("the app tags nothing by itself until the owner's .env says so, and with th
 
   // The owner writes the line, by hand, in their own file, and the app
   // reads it there as it stands: the status says so with nothing restarted.
-  writeFileSync(envFile, "X_BOOKMARKS_APP_TAGGING=on\n", { mode: 0o600 });
+  writeFileSync(envFile, "CURIO_APP_TAGGING=on\n", { mode: 0o600 });
   const edited = JSON.parse(
     (await requestToApp("GET", "/api/tagging")).body,
   ) as Status;
@@ -2959,7 +2955,7 @@ test("the app tags nothing by itself until the owner's .env says so, and with th
 
   assert.equal(on.appTagging.on, true);
   assert.match(on.appTagging.message, /^Tagging by the app is on/);
-  assert.match(on.lastAttempt?.message ?? "", /X_BOOKMARKS_ANTHROPIC_API_KEY/);
+  assert.match(on.lastAttempt?.message ?? "", /CURIO_ANTHROPIC_API_KEY/);
   assert.ok(
     on.lastAttempt?.message.includes(envFile),
     "the app looked for the key beside this run's data, not in the repo",
@@ -2967,7 +2963,7 @@ test("the app tags nothing by itself until the owner's .env says so, and with th
   untouched(on);
   assert.equal(
     readFileSync(envFile, "utf8"),
-    "X_BOOKMARKS_APP_TAGGING=on\n",
+    "CURIO_APP_TAGGING=on\n",
     "the app leaves the owner's file as the owner wrote it",
   );
   // Back to how the run found it, for whatever is tested after this.

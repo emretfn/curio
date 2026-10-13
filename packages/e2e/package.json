@@ -1,5 +1,5 @@
 {
-  "name": "@x-bookmarks/e2e",
+  "name": "@curio/e2e",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,8 +9,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@x-bookmarks/core": "workspace:*",
-    "@x-bookmarks/extension": "workspace:*"
+    "@curio/core": "workspace:*",
+    "@curio/extension": "workspace:*"
   },
   "devDependencies": {
     "@types/chrome": "^0.3.5",

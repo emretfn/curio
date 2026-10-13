@@ -1,5 +1,5 @@
 {
-  "name": "@x-bookmarks/web",
+  "name": "@curio/web",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,10 +13,10 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
+    "@curio/core": "workspace:*",
+    "@curio/extension": "workspace:*",
+    "@curio/tagger": "workspace:*",
     "@tanstack/react-virtual": "^3.14.15",
-    "@x-bookmarks/core": "workspace:*",
-    "@x-bookmarks/extension": "workspace:*",
-    "@x-bookmarks/tagger": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
     "lucide-react": "^1.55.0",

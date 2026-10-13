@@ -48,7 +48,7 @@ import {
   type TaggingSummary,
   type TokenUsage,
   UNCLEAR_FORMAT,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 import {
   type BatchResult,
   type Claude,

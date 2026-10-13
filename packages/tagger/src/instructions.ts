@@ -23,9 +23,9 @@ import {
   type Taxonomy,
   UNCLEAR_FORMAT,
   type Vocabulary,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 
-export { INSTRUCTIONS_VERSION } from "@x-bookmarks/core";
+export { INSTRUCTIONS_VERSION } from "@curio/core";
 
 /** The model that classifies. Its prices are in `pricing.ts`. */
 export const MODEL = "claude-haiku-5-5";

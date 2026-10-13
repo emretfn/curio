@@ -1,5 +1,5 @@
 import { dirname, join, resolve } from "node:path";
-import type { BackupResult, Snapshot, Store } from "@x-bookmarks/core";
+import type { BackupResult, Snapshot, Store } from "@curio/core";
 import { backupStore, listSnapshots } from "./core.ts";
 import { sharedStore } from "./data.ts";
 import { dataDirectory } from "./data-directory.ts";
@@ -15,29 +15,29 @@ export const BACKUP_INTERVAL_MS = 24 * HOUR_MS;
 const CHECK_INTERVAL_MS = HOUR_MS;
 
 /**
- * Where snapshots are kept: `X_BOOKMARKS_BACKUP_DIR` when set. Otherwise a
+ * Where snapshots are kept: `CURIO_BACKUP_DIR` when set. Otherwise a
  * directory beside the repo, named after it with `-backups` added, so that
  * no snapshot is ever inside the working tree; or, when the data directory
- * itself was moved with `X_BOOKMARKS_DATA_DIR`, `backups` inside that.
+ * itself was moved with `CURIO_DATA_DIR`, `backups` inside that.
  */
 export function backupDirectory(): string {
-  const configured = process.env.X_BOOKMARKS_BACKUP_DIR;
+  const configured = process.env.CURIO_BACKUP_DIR;
   if (configured !== undefined && configured !== "") return resolve(configured);
   const data = dataDirectory();
-  const moved = process.env.X_BOOKMARKS_DATA_DIR;
+  const moved = process.env.CURIO_DATA_DIR;
   return moved !== undefined && moved !== ""
     ? join(data, "backups")
     : `${dirname(data)}-backups`;
 }
 
-/** How many snapshots are kept: `X_BOOKMARKS_BACKUP_KEEP`, or core's default when unset. */
+/** How many snapshots are kept: `CURIO_BACKUP_KEEP`, or core's default when unset. */
 export function snapshotsKept(): number | undefined {
-  const configured = process.env.X_BOOKMARKS_BACKUP_KEEP;
+  const configured = process.env.CURIO_BACKUP_KEEP;
   if (configured === undefined || configured === "") return undefined;
   const keep = Number(configured);
   if (!Number.isInteger(keep) || keep < 1) {
     throw new Error(
-      `X_BOOKMARKS_BACKUP_KEEP must be a whole number of at least 1; it is "${configured}".`,
+      `CURIO_BACKUP_KEEP must be a whole number of at least 1; it is "${configured}".`,
     );
   }
   return keep;
@@ -84,12 +84,12 @@ interface Shared {
 // once per server layer, and the hook that starts the backups and the page
 // that reports them are in different layers.
 const shared = globalThis as typeof globalThis & {
-  __xBookmarksBackups?: Shared;
+  __curioBackups?: Shared;
 };
 
 function state(): Shared {
-  shared.__xBookmarksBackups ??= {};
-  return shared.__xBookmarksBackups;
+  shared.__curioBackups ??= {};
+  return shared.__curioBackups;
 }
 
 const reasonOf = (error: unknown) =>

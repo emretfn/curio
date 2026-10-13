@@ -2,7 +2,7 @@ import {
   PROOF_HEADER,
   responseProofIsValid,
   sha256Hex,
-} from "@x-bookmarks/extension";
+} from "@curio/extension";
 import { expect, test } from "vitest";
 import {
   appPort,
@@ -34,7 +34,7 @@ test.each([
 });
 
 test("an app started on another port answers at that address and no longer at the extension's", () => {
-  const demo = { X_BOOKMARKS_PORT: "47131" };
+  const demo = { CURIO_PORT: "47131" };
 
   expect(appPort(demo)).toBe(47131);
   expect(isLocalHost("127.0.0.1:47131", demo)).toBe(true);
@@ -56,7 +56,7 @@ test.each([
 ])(
   "a port given as %s is ignored, and the app answers to its own alone",
   (_, value) => {
-    const environment = { X_BOOKMARKS_PORT: value };
+    const environment = { CURIO_PORT: value };
 
     expect(appPort(environment)).toBe(47130);
     expect(isLocalHost("127.0.0.1:47130", environment)).toBe(true);
@@ -90,20 +90,24 @@ test.each([
   ["the token itself as a bearer", { authorization: `Bearer ${TOKEN}` }, 401],
   [
     "the token itself under the signature scheme",
-    { authorization: `XB1-HMAC-SHA256 ${TOKEN}` },
+    { authorization: `CURIO1-HMAC-SHA256 ${TOKEN}` },
     401,
   ],
   [
     "a signature that is not one",
-    { authorization: `XB1-HMAC-SHA256 ${"0".repeat(64)}` },
+    { authorization: `CURIO1-HMAC-SHA256 ${"0".repeat(64)}` },
     401,
   ],
-  ["no nonce", { "x-xb-nonce": null }, 401],
-  ["a nonce other than the signed one", { "x-xb-nonce": "f".repeat(32) }, 401],
-  ["no body digest", { "x-xb-body-sha256": null }, 401],
+  ["no nonce", { "x-curio-nonce": null }, 401],
+  [
+    "a nonce other than the signed one",
+    { "x-curio-nonce": "f".repeat(32) },
+    401,
+  ],
+  ["no body digest", { "x-curio-body-sha256": null }, 401],
   [
     "a body digest other than the signed one",
-    { "x-xb-body-sha256": "0".repeat(64) },
+    { "x-curio-body-sha256": "0".repeat(64) },
     401,
   ],
 ] as const)(

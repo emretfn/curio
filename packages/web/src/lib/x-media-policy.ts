@@ -86,7 +86,7 @@ export function contentSecurityPolicy(): string {
  * owner's choice in this browser, off unless the stored value is exactly
  * `on`, and the server never sees it.
  */
-export const AUTO_MEDIA_STORAGE_KEY = "x-bookmarks:auto-media";
+export const AUTO_MEDIA_STORAGE_KEY = "curio:auto-media";
 
 /**
  * How long a post's media must stay on screen before the automatic setting

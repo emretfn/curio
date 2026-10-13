@@ -1,5 +1,5 @@
 /**
- * `@x-bookmarks/core`, loaded by Node at run time instead of being bundled.
+ * `@curio/core`, loaded by Node at run time instead of being bundled.
  *
  * Next bundles a workspace package that exports TypeScript source, and it
  * does so once per server layer (pages, route handlers), which would give
@@ -10,7 +10,7 @@
  * the native SQLite driver is resolved from core's own dependencies.
  *
  * Import core's functions from here in this package. Importing types from
- * "@x-bookmarks/core" is fine: they are erased.
+ * "@curio/core" is fine: they are erased.
  */
 export const {
   acceptTagProposal,
@@ -58,6 +58,6 @@ export const {
   weekAfter,
   weekBefore,
   weekOf,
-}: typeof import("@x-bookmarks/core") = await import(
-  /* turbopackIgnore: true */ "@x-bookmarks/core"
+}: typeof import("@curio/core") = await import(
+  /* turbopackIgnore: true */ "@curio/core"
 );

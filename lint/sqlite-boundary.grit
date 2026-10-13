@@ -8,5 +8,5 @@ or {
   `createRequire`,
   `getBuiltinModule`
 } as $name where {
-  register_diagnostic(span=$name, message="Only packages/core may load a module by name at run time, because that reaches the SQLite driver past the import restriction. Use an import statement, and reach the database through @x-bookmarks/core.", severity="error")
+  register_diagnostic(span=$name, message="Only packages/core may load a module by name at run time, because that reaches the SQLite driver past the import restriction. Use an import statement, and reach the database through @curio/core.", severity="error")
 }

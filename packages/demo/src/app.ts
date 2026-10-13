@@ -15,7 +15,7 @@ import { existsSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { APP_PORT } from "@x-bookmarks/extension";
+import { APP_PORT } from "@curio/extension";
 
 export const repoRoot = join(import.meta.dirname, "../../..");
 export const webDirectory = join(repoRoot, "packages/web");
@@ -51,17 +51,15 @@ export function demoEnvironment(
   answersAt: number = REAL_APP_PORT,
 ): NodeJS.ProcessEnv {
   const inherited = { ...process.env };
-  delete inherited.X_BOOKMARKS_PORT;
+  delete inherited.CURIO_PORT;
   return {
     ...inherited,
-    X_BOOKMARKS_DATA_DIR: dataDirectory,
-    X_BOOKMARKS_BACKUP_DIR: join(dataDirectory, "backups"),
-    X_BOOKMARKS_NEXT_DIR: NEXT_DIRECTORY,
+    CURIO_DATA_DIR: dataDirectory,
+    CURIO_BACKUP_DIR: join(dataDirectory, "backups"),
+    CURIO_NEXT_DIR: NEXT_DIRECTORY,
     // Next's own usage reports, which the app's config switches off as well.
     NEXT_TELEMETRY_DISABLED: "1",
-    ...(answersAt === REAL_APP_PORT
-      ? {}
-      : { X_BOOKMARKS_PORT: String(answersAt) }),
+    ...(answersAt === REAL_APP_PORT ? {} : { CURIO_PORT: String(answersAt) }),
   };
 }
 

@@ -14,7 +14,7 @@ import {
   openStore,
   type Week,
   weekOf,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 import { createClaude } from "../anthropic.ts";
 import {
   ApiKeyUnavailable,

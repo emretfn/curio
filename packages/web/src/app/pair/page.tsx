@@ -22,8 +22,7 @@ export default function PairPage() {
         <CardContent>
           <ol className="flex list-decimal flex-col gap-2 pl-5">
             <li>
-              In a terminal, in the x-bookmarks folder, run{" "}
-              <code>pnpm pair</code>.
+              In a terminal, in the Curio folder, run <code>pnpm pair</code>.
             </li>
             <li>Copy the token it prints.</li>
             <li>

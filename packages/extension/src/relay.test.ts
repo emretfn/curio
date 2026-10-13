@@ -99,7 +99,7 @@ test("events under any other name are not listened to", async () => {
   const { send, fire } = await startRelay();
 
   fire(JSON.stringify({ kind: "capture", capture: seen }), "message");
-  fire(JSON.stringify({ kind: "capture", capture: seen }), "x-bookmarks:other");
+  fire(JSON.stringify({ kind: "capture", capture: seen }), "curio:other");
 
   expect(send).not.toHaveBeenCalled();
 });

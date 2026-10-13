@@ -5,8 +5,8 @@ import {
   insertRawCapture,
   type Store,
   upsertBookmark,
-} from "@x-bookmarks/core";
-import { openTempStore } from "@x-bookmarks/core/testing";
+} from "@curio/core";
+import { openTempStore } from "@curio/core/testing";
 import { expect, test } from "vitest";
 import {
   classifierInput,

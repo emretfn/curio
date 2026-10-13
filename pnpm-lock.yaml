@@ -191,10 +191,10 @@ importers:
 
   packages/demo:
     dependencies:
-      '@x-bookmarks/core':
+      '@curio/core':
         specifier: workspace:*
         version: link:../core
-      '@x-bookmarks/extension':
+      '@curio/extension':
         specifier: workspace:*
         version: link:../extension
     devDependencies:
@@ -204,10 +204,10 @@ importers:
 
   packages/e2e:
     dependencies:
-      '@x-bookmarks/core':
+      '@curio/core':
         specifier: workspace:*
         version: link:../core
-      '@x-bookmarks/extension':
+      '@curio/extension':
         specifier: workspace:*
         version: link:../extension
     devDependencies:
@@ -229,12 +229,12 @@ importers:
 
   packages/mcp:
     dependencies:
+      '@curio/core':
+        specifier: workspace:*
+        version: link:../core
       '@modelcontextprotocol/server':
         specifier: ^2.3.1
         version: 2.3.1
-      '@x-bookmarks/core':
-        specifier: workspace:*
-        version: link:../core
       zod:
         specifier: ^4.2.0
         version: 4.6.6
@@ -248,7 +248,7 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.133.0
         version: 0.133.0(zod@3.25.76)
-      '@x-bookmarks/core':
+      '@curio/core':
         specifier: workspace:*
         version: link:../core
 
@@ -257,18 +257,18 @@ importers:
       '@base-ui/react':
         specifier: ^1.9.0
         version: 1.9.0(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@curio/core':
+        specifier: workspace:*
+        version: link:../core
+      '@curio/extension':
+        specifier: workspace:*
+        version: link:../extension
+      '@curio/tagger':
+        specifier: workspace:*
+        version: link:../tagger
       '@tanstack/react-virtual':
         specifier: ^3.14.15
         version: 3.14.15(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@x-bookmarks/core':
-        specifier: workspace:*
-        version: link:../core
-      '@x-bookmarks/extension':
-        specifier: workspace:*
-        version: link:../extension
-      '@x-bookmarks/tagger':
-        specifier: workspace:*
-        version: link:../tagger
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1

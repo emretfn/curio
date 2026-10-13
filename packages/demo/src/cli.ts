@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { openStore } from "@x-bookmarks/core";
+import { openStore } from "@curio/core";
 import {
   buildApp,
   DEMO_HOST,

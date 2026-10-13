@@ -11,7 +11,7 @@
  * no CORS header, and a browser that says the request came from another
  * site is refused.
  */
-import type { Store, TaggingSummary } from "@x-bookmarks/core";
+import type { Store, TaggingSummary } from "@curio/core";
 import { summariseTagging } from "./core.ts";
 import { isLocalHost } from "./guard.ts";
 import { appTagging, type TaggingStatus, taggingStatus } from "./tagging.ts";

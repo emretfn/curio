@@ -15,8 +15,8 @@ import {
   weekAfter,
   weekBefore,
   weekOf,
-} from "@x-bookmarks/core";
-import { openTempStore, readFixture } from "@x-bookmarks/core/testing";
+} from "@curio/core";
+import { openTempStore, readFixture } from "@curio/core/testing";
 import { expect, test } from "vitest";
 import { getDigestPage } from "./digest.ts";
 import { digestHref, LIBRARY_LINKS, parseDigestWeek } from "./digest-params.ts";
@@ -293,7 +293,7 @@ test("the digest's own modules read through core, never write, and never ask for
   for (const { path, source } of sources) {
     // The tagger is the one package that calls Claude, and one module of
     // the app may load it: the tagging passes. The digest is not it.
-    expect(source, path).not.toMatch(/@x-bookmarks\/tagger/);
+    expect(source, path).not.toMatch(/@curio\/tagger/);
     expect(source, path).not.toMatch(
       /startDigestRun|finishDigestRun|writeDigest|\bfetch\b|"use server"/,
     );

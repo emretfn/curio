@@ -13,7 +13,7 @@
  *   description says so too, so that a post which reads like an instruction
  *   is read as a post.
  */
-import { McpServer } from "@modelcontextprotocol/server";
+
 import {
   type BookmarkFilter,
   getBookmark,
@@ -30,7 +30,8 @@ import {
   summariseWeek,
   TAXONOMY,
   weekOf,
-} from "@x-bookmarks/core";
+} from "@curio/core";
+import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import {
   bookmarkDetail,
@@ -271,7 +272,7 @@ const READ_ONLY = {
  */
 export function createServer(library: () => Store): McpServer {
   const server = new McpServer(
-    { name: "x-bookmarks", version: "0.0.0" },
+    { name: "curio", version: "0.0.0" },
     { instructions: INSTRUCTIONS },
   );
 

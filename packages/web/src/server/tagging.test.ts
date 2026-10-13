@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { openTempStore, tempDatabasePath } from "@x-bookmarks/core/testing";
-import type { AutomaticPass } from "@x-bookmarks/tagger/automatic";
+import { openTempStore, tempDatabasePath } from "@curio/core/testing";
+import type { AutomaticPass } from "@curio/tagger/automatic";
 import { afterEach, expect, test, vi } from "vitest";
 import {
   AFTER_CAPTURE_MS,
@@ -18,20 +18,20 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
   const shared = globalThis as {
-    __xBookmarksTagging?: { timer?: NodeJS.Timeout; pending?: NodeJS.Timeout };
-    __xBookmarks?: { store?: { close(): void } };
+    __curioTagging?: { timer?: NodeJS.Timeout; pending?: NodeJS.Timeout };
+    __curio?: { store?: { close(): void } };
   };
-  clearInterval(shared.__xBookmarksTagging?.timer);
-  clearTimeout(shared.__xBookmarksTagging?.pending);
-  delete shared.__xBookmarksTagging;
-  shared.__xBookmarks?.store?.close();
-  delete shared.__xBookmarks;
+  clearInterval(shared.__curioTagging?.timer);
+  clearTimeout(shared.__curioTagging?.pending);
+  delete shared.__curioTagging;
+  shared.__curio?.store?.close();
+  delete shared.__curio;
 });
 
 /** A temporary data directory that the app's settings point at. */
 function setUp() {
   const path = tempDatabasePath();
-  vi.stubEnv("X_BOOKMARKS_DATA_DIR", dirname(path));
+  vi.stubEnv("CURIO_DATA_DIR", dirname(path));
   return { store: openTempStore(path), data: dirname(path) };
 }
 
@@ -171,7 +171,7 @@ test("the key is in no variable of the app's environment: not before a pass, and
   const key = "sk-ant-api03-FAKE0not0a0real0key0000000000000000";
   writeFileSync(
     join(data, ".env"),
-    `X_BOOKMARKS_ANTHROPIC_API_KEY=${key}\nX_BOOKMARKS_APP_TAGGING=on\n`,
+    `CURIO_ANTHROPIC_API_KEY=${key}\nCURIO_APP_TAGGING=on\n`,
     { mode: 0o600 },
   );
   const before = { ...process.env };
@@ -263,7 +263,7 @@ test("unless the owner has turned it on, the real pass is off: a state and not a
   // the owner's word that the app may spend.
   writeFileSync(
     join(data, ".env"),
-    "X_BOOKMARKS_ANTHROPIC_API_KEY=sk-ant-api03-FAKE0not0a0real0key0000000000000000\n",
+    "CURIO_ANTHROPIC_API_KEY=sk-ant-api03-FAKE0not0a0real0key0000000000000000\n",
     { mode: 0o600 },
   );
   const requested = vi.spyOn(globalThis, "fetch");
@@ -285,7 +285,7 @@ test("unless the owner has turned it on, the real pass is off: a state and not a
     problem: false,
   });
   expect(attempt.message).toMatch(/^Tagging by the app is off/);
-  expect(attempt.message).toContain("X_BOOKMARKS_APP_TAGGING=on");
+  expect(attempt.message).toContain("CURIO_APP_TAGGING=on");
   expect(attempt.message).toContain("pnpm tag");
   expect(taggingStatus().lastAttempt?.status).toBe("off");
   expect(requested).not.toHaveBeenCalled();
@@ -296,7 +296,7 @@ test("the owner's setting is read from the file beside the data, as it stands at
   const { data } = setUp();
 
   const byDefault = await appTagging();
-  writeFileSync(join(data, ".env"), "X_BOOKMARKS_APP_TAGGING=on\n", {
+  writeFileSync(join(data, ".env"), "CURIO_APP_TAGGING=on\n", {
     mode: 0o600,
   });
   const turnedOn = await appTagging();

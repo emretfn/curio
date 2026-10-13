@@ -8,7 +8,7 @@
 import { useSyncExternalStore } from "react";
 import { AUTO_MEDIA_STORAGE_KEY } from "@/lib/x-media-policy";
 
-const CHANGED = "x-bookmarks:auto-media-changed";
+const CHANGED = "curio:auto-media-changed";
 
 function read(): boolean {
   try {

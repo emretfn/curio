@@ -5,15 +5,12 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { latestWeekEnded, WEEK_ENDS_SUNDAY_AT_HOUR } from "@x-bookmarks/core";
+import { latestWeekEnded, WEEK_ENDS_SUNDAY_AT_HOUR } from "@curio/core";
 import { expect, test } from "vitest";
 import { DEFAULT_DIGEST_CAP_USD } from "./run.ts";
 
 const directory = join(import.meta.dirname, "../../launchd");
-const plist = readFileSync(
-  join(directory, "dev.x-bookmarks.digest.plist"),
-  "utf8",
-);
+const plist = readFileSync(join(directory, "dev.curio.digest.plist"), "utf8");
 /** The file without its comment. */
 const body = plist.replace(/<!--[\s\S]*?-->/g, "");
 
@@ -62,7 +59,7 @@ test("it holds no key and no address, and writes its log where the owner's logs 
   expect(body).not.toMatch(/sk-ant|ANTHROPIC|EnvironmentVariables/);
   expect(body.replace(/<!DOCTYPE[^>]*>/, "")).not.toMatch(/https?:\/\//);
   expect(body).toMatch(
-    /<key>StandardOutPath<\/key>\s*<string>__HOME__\/Library\/Logs\/x-bookmarks-digest\.log<\/string>/,
+    /<key>StandardOutPath<\/key>\s*<string>__HOME__\/Library\/Logs\/curio-digest\.log<\/string>/,
   );
   expect(body.match(/__[A-Z]+__/g)?.toSorted()).toEqual([
     "__HOME__",
@@ -74,7 +71,7 @@ test("it holds no key and no address, and writes its log where the owner's logs 
 });
 
 test("the template is the only thing in the directory, and nothing in this package starts launchd", () => {
-  expect(readdirSync(directory)).toEqual(["dev.x-bookmarks.digest.plist"]);
+  expect(readdirSync(directory)).toEqual(["dev.curio.digest.plist"]);
   const sources = readdirSync(import.meta.dirname)
     .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
     .map((name) => readFileSync(join(import.meta.dirname, name), "utf8"));

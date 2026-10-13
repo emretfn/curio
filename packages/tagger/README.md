@@ -1,4 +1,4 @@
-# x-bookmarks tagger
+# Curio tagger
 
 Files each bookmark under one category, one format and a few tags, by asking Claude; and, when you ask for it, writes the summary of a week for the weekly digest. It is the only code in this repo that calls Claude, and the only code that sends anything of the library to a third party. It needs an API key, and a run costs money: about $0.00012 a bookmark as first measured, so under twenty cents for a library of 1,400, and a cent or so a week after that. A week's digest is one request more, a few cents: see "The weekly digest" below.
 
@@ -14,13 +14,13 @@ What it files under is not here. The categories and formats are `TAXONOMY` in `p
    chmod 600 .env
    ```
 
-   Then open `.env` in an editor and paste the key after `X_BOOKMARKS_ANTHROPIC_API_KEY=`.
+   Then open `.env` in an editor and paste the key after `CURIO_ANTHROPIC_API_KEY=`.
 3. **Keep the name.** The variable is not called `ANTHROPIC_API_KEY`, and must not be. Under that name a key takes precedence over a Claude Code subscription login wherever it is in the environment, so Claude Code, `claude -p` or an Agent SDK process would bill the API instead of your plan, without saying so. The classifier reads its own variable from the file and hands the key to the client; it reads no environment for it and sets none. If `ANTHROPIC_API_KEY` is set anyway, in your shell or in `.env`, the classifier does not use it and tells you.
 4. `pnpm tag --check` confirms the key is in place and the file is safe. It makes no request.
 
 The command refuses to run, and says what to do, when `.env` is missing, gives the variable no value, holds something that is not shaped like an API key, or can be read or written by another user of this computer. That last is a refusal and not a warning: the app tags new bookmarks by itself, with no terminal to show a warning in, and the fix is the `chmod` above.
 
-Nothing loads `.env` into a process's environment. Next.js loads `.env` files from its own project directory, `packages/web`, which holds none, and not from the repo's root; so the app's process has the key in no variable, and reads it from the file only when a tagging pass runs. A test, or anything else that sets `X_BOOKMARKS_DATA_DIR`, looks for `.env` inside that directory and never finds yours.
+Nothing loads `.env` into a process's environment. Next.js loads `.env` files from its own project directory, `packages/web`, which holds none, and not from the repo's root; so the app's process has the key in no variable, and reads it from the file only when a tagging pass runs. A test, or anything else that sets `CURIO_DATA_DIR`, looks for `.env` inside that directory and never finds yours.
 
 ## The commands, in order
 
@@ -90,7 +90,7 @@ Both carry the same request, with the same output schema. Anthropic's documentat
 To let the app keep up by itself, add one line to the same `.env` file, in an editor:
 
 ```
-X_BOOKMARKS_APP_TAGGING=on
+CURIO_APP_TAGGING=on
 ```
 
 Remove the line, or set it to anything else, to turn it off again. Either way it takes effect at the app's next pass, with no restart.
@@ -98,7 +98,7 @@ Remove the line, or set it to anything else, to turn it off again. Either way it
 - **Only you can set it.** It is a line of a file you edit by hand. Nothing in the repo writes that file; no page, route, MCP tool or argument turns the app's tagging on, and `GET /api/tagging` only reports it. A switch on a page is one any script on that page could flip.
 - **Only the word `on` turns it on.** No file, no line, an empty value, `true`, `1`, or two lines that disagree: all off. It is read from the file and never from an environment.
 - **A key is not a yes.** With a key in place and this line absent, the app still sends nothing. The key is what your own runs use.
-- **Off means nothing is sent.** A pass counts what is waiting, which is a query of the library, and answers `off`, saying how to turn it on and which commands do the same by hand. It does not open the key, collect a batch your run left waiting, or even load the client: `src/automatic.ts` imports the client and the run only inside a pass that is allowed and has something to send, and the app loads that file alone (`@x-bookmarks/tagger/automatic`).
+- **Off means nothing is sent.** A pass counts what is waiting, which is a query of the library, and answers `off`, saying how to turn it on and which commands do the same by hand. It does not open the key, collect a batch your run left waiting, or even load the client: `src/automatic.ts` imports the client and the run only inside a pass that is allowed and has something to send, and the app loads that file alone (`@curio/tagger/automatic`).
 - **What is free still happens.** Accepting a proposed tag puts it on the bookmarks it was proposed for at once, on or off: that is a write to the database and no request. Only asking the bookmarks that merely mention the tag needs the classifier, and with the app's tagging off that is `pnpm tag --new-tags`.
 
 With the line in place, the app asks for a pass (`tagNewBookmarks` in `src/automatic.ts`) as it starts, a minute after the last capture of a burst is stored, and once an hour. A pass:
@@ -208,7 +208,7 @@ The first sample, 50 bookmarks sent one at a time, came back whole: 50 classifie
 
 ## The weekly digest
 
-The digest page (`/digest` in the app) shows each week of bookmarks: what was saved, counted by category, format and tag, the posts themselves, and what the classifier's answers suggest about the taxonomy. All of that is read from the library and costs nothing. `pnpm digest` adds the written part: Claude's summary of the week, its themes and which posts are worth going back to. That is one request to the Claude API for a week, it costs money, and nothing starts it but you: not the app, not a capture, not the MCP server. The app's own tagging has a switch, `X_BOOKMARKS_APP_TAGGING`, because the app would otherwise act by itself; the digest has none, because the app never writes one, on or off. `pnpm digest` is yours to run either way, as `pnpm tag` is.
+The digest page (`/digest` in the app) shows each week of bookmarks: what was saved, counted by category, format and tag, the posts themselves, and what the classifier's answers suggest about the taxonomy. All of that is read from the library and costs nothing. `pnpm digest` adds the written part: Claude's summary of the week, its themes and which posts are worth going back to. That is one request to the Claude API for a week, it costs money, and nothing starts it but you: not the app, not a capture, not the MCP server. The app's own tagging has a switch, `CURIO_APP_TAGGING`, because the app would otherwise act by itself; the digest has none, because the app never writes one, on or off. `pnpm digest` is yours to run either way, as `pnpm tag` is.
 
 It lives in this package, under `src/digest/`, because this is the one package that sends anything to Claude. It sends through the same client, `src/anthropic.ts`, to the same one host, with the same key from the same `.env` line.
 
@@ -242,27 +242,27 @@ The model always thinks, at medium effort. A refusal, an answer cut short and an
 
 ### On a schedule
 
-`launchd/dev.x-bookmarks.digest.plist` is a launchd job that runs `pnpm digest --scheduled --max-usd 0.50` every Sunday at 21:00. It is a template: nothing here installs it. From the repo's root:
+`launchd/dev.curio.digest.plist` is a launchd job that runs `pnpm digest --scheduled --max-usd 0.50` every Sunday at 21:00. It is a template: nothing here installs it. From the repo's root:
 
 ```
 mkdir -p ~/Library/LaunchAgents
 sed -e "s|__NODE__|$(command -v node)|" -e "s|__REPO__|$PWD|g" -e "s|__HOME__|$HOME|g" \
-  packages/tagger/launchd/dev.x-bookmarks.digest.plist > ~/Library/LaunchAgents/dev.x-bookmarks.digest.plist
-plutil -lint ~/Library/LaunchAgents/dev.x-bookmarks.digest.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.x-bookmarks.digest.plist
+  packages/tagger/launchd/dev.curio.digest.plist > ~/Library/LaunchAgents/dev.curio.digest.plist
+plutil -lint ~/Library/LaunchAgents/dev.curio.digest.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.curio.digest.plist
 ```
 
 To remove it:
 
 ```
-launchctl bootout gui/$(id -u)/dev.x-bookmarks.digest
-rm ~/Library/LaunchAgents/dev.x-bookmarks.digest.plist
+launchctl bootout gui/$(id -u)/dev.curio.digest
+rm ~/Library/LaunchAgents/dev.curio.digest.plist
 ```
 
-- **It is the one thing that spends unattended with `X_BOOKMARKS_APP_TAGGING` off.** That line of `.env` is about what the app does by itself, and this job is not the app: it is a separate program that launchd starts, it does not read the line, and "off" there does not stop it. Nothing spends by itself as the repo is checked out: the app's tagging is off until you write that line, and this job does not exist until you run the commands above. Running them is how you say yes to it, and `launchctl bootout`, above, is how you say no. With neither the line nor the job, every request to the API is one you typed.
+- **It is the one thing that spends unattended with `CURIO_APP_TAGGING` off.** That line of `.env` is about what the app does by itself, and this job is not the app: it is a separate program that launchd starts, it does not read the line, and "off" there does not stop it. Nothing spends by itself as the repo is checked out: the app's tagging is off until you write that line, and this job does not exist until you run the commands above. Running them is how you say yes to it, and `launchctl bootout`, above, is how you say no. With neither the line nor the job, every request to the API is one you typed.
 - **What it spends.** At most $0.50 a week, which is its cap; by the estimates above about $0.03 to $0.16, so some $0.15 to $0.70 a month. Nothing in a week that holds fewer than three bookmarks, and nothing twice for one week.
 - **When the Mac is asleep at 21:00** launchd runs the job when it wakes, and the week it writes is still the one that ended. Switched off, that week is skipped; `pnpm digest --week <day>` writes it later.
-- **What it needs.** The key in `.env`, as for `pnpm tag`. Without one the job fails and says so in `~/Library/Logs/x-bookmarks-digest.log`, which holds what the command prints and nothing of a bookmark. The path of `node` is written into the installed file: after changing Node versions with a version manager, install it again.
+- **What it needs.** The key in `.env`, as for `pnpm tag`. Without one the job fails and says so in `~/Library/Logs/curio-digest.log`, which holds what the command prints and nothing of a bookmark. The path of `node` is written into the installed file: after changing Node versions with a version manager, install it again.
 - **Not tried from here.** The job was written and checked as a property list, and never loaded. In particular macOS may ask, the first time it fires, whether `node` may read the folder the repo is in.
 
 ## Working on it

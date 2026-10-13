@@ -1,6 +1,6 @@
 /**
  * Tagging of new bookmarks without anyone running anything. The work is the
- * tagger's (`tagNewBookmarks` in `@x-bookmarks/tagger/automatic`); this
+ * tagger's (`tagNewBookmarks` in `@curio/tagger/automatic`); this
  * module decides when the app asks for it, and remembers what came of it.
  *
  * It is off unless the owner has turned it on, because a pass spends their
@@ -37,8 +37,8 @@
  * What a pass may do by itself, and what it leaves to the owner (the first
  * run, a backlog, a re-tagging), is decided in the tagger.
  */
-import type { Store } from "@x-bookmarks/core";
-import type { AppTagging, AutomaticPass } from "@x-bookmarks/tagger/automatic";
+import type { Store } from "@curio/core";
+import type { AppTagging, AutomaticPass } from "@curio/tagger/automatic";
 import { sharedStore } from "./data.ts";
 
 const MINUTE_MS = 60 * 1000;
@@ -84,7 +84,7 @@ export type Pass = (store: Store) => Promise<AutomaticPass>;
  * one the owner has allowed that has something to send.
  */
 const automatic = () =>
-  import(/* turbopackIgnore: true */ "@x-bookmarks/tagger/automatic");
+  import(/* turbopackIgnore: true */ "@curio/tagger/automatic");
 
 const tagger: Pass = async (store) => {
   const { tagNewBookmarks } = await automatic();
@@ -114,12 +114,12 @@ interface Shared {
 // On globalThis for the reason given in data.ts: the start hook, the ingest
 // route and a page that reports the status are in different server layers.
 const shared = globalThis as typeof globalThis & {
-  __xBookmarksTagging?: Shared;
+  __curioTagging?: Shared;
 };
 
 function state(): Shared {
-  shared.__xBookmarksTagging ??= {};
-  return shared.__xBookmarksTagging;
+  shared.__curioTagging ??= {};
+  return shared.__curioTagging;
 }
 
 const sum = (

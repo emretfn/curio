@@ -49,10 +49,10 @@ test("it loads the MCP library, core, the schema library and a path helper, and 
   );
 
   expect([...modules].toSorted()).toEqual([
+    "@curio/core",
     "@modelcontextprotocol/server",
     // Standard input and output: the one transport this server is given.
     "@modelcontextprotocol/server/stdio",
-    "@x-bookmarks/core",
     "node:path",
     "zod/v4",
   ]);
@@ -65,7 +65,7 @@ test("of core it takes the functions that read, and no function that writes", ()
   const taken = new Set(
     sources.flatMap(({ text }) =>
       imports(text)
-        .filter(({ module }) => module === "@x-bookmarks/core")
+        .filter(({ module }) => module === "@curio/core")
         .flatMap(({ names }) => names),
     ),
   );

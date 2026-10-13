@@ -6,7 +6,7 @@ import {
   SIGNATURE_SCHEME,
   sha256Hex,
   signRequest,
-} from "@x-bookmarks/extension";
+} from "@curio/extension";
 
 export const TOKEN = "kq3vX2mB8sYt0aLr5nWc7dHf1gJz4pQe9uTi6oVbNxM";
 

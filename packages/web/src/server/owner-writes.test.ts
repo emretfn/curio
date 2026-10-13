@@ -7,7 +7,7 @@ import {
   retireTag,
   type Store,
   summariseTagging,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 import { expect, test, vi } from "vitest";
 import { type FiledLibrary, openFiledLibrary } from "./library-testing.ts";
 import {

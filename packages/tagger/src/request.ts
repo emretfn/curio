@@ -3,7 +3,7 @@
  * shape serves both ways of sending it, a message of its own or a line of a
  * batch, so that what the model is asked does not depend on the route.
  */
-import { isCategoryId, isFormatId, OTHER_CATEGORY } from "@x-bookmarks/core";
+import { isCategoryId, isFormatId, OTHER_CATEGORY } from "@curio/core";
 import type { ClaudeMessage, ClaudeRequest } from "./anthropic.ts";
 import { type ClassifierInput, messageOf } from "./input.ts";
 import {

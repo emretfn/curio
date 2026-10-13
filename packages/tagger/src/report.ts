@@ -8,7 +8,7 @@ import {
   TAXONOMY,
   type TaggingSummary,
   UNCLEAR_FORMAT,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 import { INSTRUCTIONS_VERSION, MODEL } from "./instructions.ts";
 import { usd } from "./pricing.ts";
 import type { TaggingPlan, TaggingReport } from "./run.ts";

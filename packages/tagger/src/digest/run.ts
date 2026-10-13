@@ -31,7 +31,7 @@ import {
   startDigestRun,
   type TokenUsage,
   type Week,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 import { type Claude, ClaudeFailure } from "../anthropic.ts";
 import type { ClassifierInput } from "../input.ts";
 import { CHARACTERS_PER_TOKEN, costOf, mostOf, totalsOf } from "../pricing.ts";

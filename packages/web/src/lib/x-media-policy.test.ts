@@ -4,7 +4,7 @@
  * test, against a fake media host.
  */
 import { globSync, readFileSync } from "node:fs";
-import { isXOwnedHost } from "@x-bookmarks/core";
+import { isXOwnedHost } from "@curio/core";
 import { expect, test } from "vitest";
 import {
   contentSecurityPolicy,

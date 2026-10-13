@@ -2,7 +2,7 @@
  * The one request that writes a week's digest, and the reading of its
  * answer.
  */
-import { DIGEST_LIMITS, type DigestText } from "@x-bookmarks/core";
+import { DIGEST_LIMITS, type DigestText } from "@curio/core";
 import type { ClaudeMessage, ClaudeRequest } from "../anthropic.ts";
 import { bytesOf, type RequestSize } from "../pricing.ts";
 import { type DigestInput, digestMessageOf } from "./input.ts";

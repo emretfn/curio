@@ -22,7 +22,7 @@ import {
   type PostContent,
   type QuotedPost,
   visibleText,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 
 interface PostParts {
   text: string;

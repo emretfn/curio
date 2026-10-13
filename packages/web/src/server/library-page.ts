@@ -10,7 +10,7 @@
  * answer; a browser that says the request came from another site is refused
  * all the same.
  */
-import type { Store } from "@x-bookmarks/core";
+import type { Store } from "@curio/core";
 import { type ItemView, toItemView } from "../lib/post-view.ts";
 import { isLocalHost } from "./guard.ts";
 import { type LibraryPage, listLibrary } from "./library.ts";

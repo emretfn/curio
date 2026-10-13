@@ -11,7 +11,7 @@ pnpm diagram            # export the README's architecture diagram again, into d
 
 `pnpm demo` needs no extension, no pairing, no API key and no network. It can run beside the real app: it keeps its library in `demo-data/` at the repo's root, builds the app into a directory of its own, and listens on its own port. The library is deleted and made again each time the demo starts, so whatever you file, correct or merge in it is yours to break. Stop it with Ctrl+C.
 
-To ask Claude about the demo library, start the MCP server on it: `X_BOOKMARKS_DATA_DIR=demo-data node packages/mcp/src/main.ts` is the command, and [the MCP server's README](../mcp/README.md) says where it goes.
+To ask Claude about the demo library, start the MCP server on it: `CURIO_DATA_DIR=demo-data node packages/mcp/src/main.ts` is the command, and [the MCP server's README](../mcp/README.md) says where it goes.
 
 ## What is in it
 
@@ -53,7 +53,7 @@ The pages are not parser fixtures. They hold what the parser reads and are no co
 - five screens of the app, 1200 by 800: the library, a search, the label filters with a category menu open, the Tags page, and the weekly digest;
 - two states of the extension's popup, at its own width: not paired yet, and paired and up to date.
 
-It builds a demo library and the extension into a temporary directory, starts the app on that library on a free port, and drives Playwright's Chromium with the extension loaded. It needs Playwright's browser once: `pnpm --filter @x-bookmarks/demo exec playwright install chromium`.
+It builds a demo library and the extension into a temporary directory, starts the app on that library on a free port, and drives Playwright's Chromium with the extension loaded. It needs Playwright's browser once: `pnpm --filter @curio/demo exec playwright install chromium`.
 
 - `pnpm screenshots --no-build` reuses the app as it was last built into `.next-demo`, and takes about fifteen seconds. Use it after changing the demo's posts or the extension; leave it out after changing the app.
 - `pnpm screenshots --only library` takes one shot. The names are `library`, `search`, `labels`, `tags`, `digest`, `popup-not-paired` and `popup-paired`.

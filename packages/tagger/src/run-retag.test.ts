@@ -10,7 +10,7 @@ import {
   recordClassification,
   recordTaggingProgress,
   startTaggingRun,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 import { expect, test, vi } from "vitest";
 import { createClaude } from "./anthropic.ts";
 import { INSTRUCTIONS_VERSION, MODEL } from "./instructions.ts";

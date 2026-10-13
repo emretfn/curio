@@ -38,25 +38,25 @@
                   "sql.js",
                   "@sqlite.org/**"
                 ],
-                "message": "Only packages/core may open the database. Use the functions exported by @x-bookmarks/core, and add one there if the one you need is missing."
+                "message": "Only packages/core may open the database. Use the functions exported by @curio/core, and add one there if the one you need is missing."
               },
               {
                 "group": [
-                  "@x-bookmarks/core/**",
-                  "!@x-bookmarks/core/testing",
+                  "@curio/core/**",
+                  "!@curio/core/testing",
                   "**/core/src/**"
                 ],
-                "message": "Import from \"@x-bookmarks/core\", or from \"@x-bookmarks/core/testing\" in a test. Core's internals hold the database connection and are private."
+                "message": "Import from \"@curio/core\", or from \"@curio/core/testing\" in a test. Core's internals hold the database connection and are private."
               }
             ],
             "paths": {
               "node:module": {
                 "importNames": ["createRequire"],
-                "message": "Only packages/core may load a module by name at run time. Use an import statement, and reach the database through @x-bookmarks/core."
+                "message": "Only packages/core may load a module by name at run time. Use an import statement, and reach the database through @curio/core."
               },
               "module": {
                 "importNames": ["createRequire"],
-                "message": "Only packages/core may load a module by name at run time. Use an import statement, and reach the database through @x-bookmarks/core."
+                "message": "Only packages/core may load a module by name at run time. Use an import statement, and reach the database through @curio/core."
               }
             }
           }

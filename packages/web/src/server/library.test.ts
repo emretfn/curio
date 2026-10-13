@@ -10,8 +10,8 @@ import {
   summariseLibrary,
   summariseParsing,
   upsertBookmark,
-} from "@x-bookmarks/core";
-import { openTempStore, readFixture } from "@x-bookmarks/core/testing";
+} from "@curio/core";
+import { openTempStore, readFixture } from "@curio/core/testing";
 import { expect, test } from "vitest";
 import {
   getLibraryFacets,

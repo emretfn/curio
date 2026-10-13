@@ -1,4 +1,4 @@
-import { type Bookmark, getBookmark } from "@x-bookmarks/core";
+import { type Bookmark, getBookmark } from "@curio/core";
 import { expect, test } from "vitest";
 import { CLASSIFIER_LIMITS, classifierInput } from "../input.ts";
 import { library, postId } from "../testing/library.ts";

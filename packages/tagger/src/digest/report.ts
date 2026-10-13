@@ -4,7 +4,7 @@
  * or the digest itself (PRIV-5, AI-9), so its output can be pasted
  * anywhere, and is safe in the log the schedule writes to.
  */
-import { type DigestRun, lastDayOf, type Week } from "@x-bookmarks/core";
+import { type DigestRun, lastDayOf, type Week } from "@curio/core";
 import { usd } from "../pricing.ts";
 import { MAX_DIGEST_BOOKMARKS, MIN_DIGEST_BOOKMARKS } from "./input.ts";
 import { DIGEST_INSTRUCTIONS_VERSION, DIGEST_MODEL } from "./instructions.ts";

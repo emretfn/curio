@@ -1,11 +1,11 @@
-import type { Store } from "@x-bookmarks/core";
+import type { Store } from "@curio/core";
 import {
   CAPTURE_SOURCE,
   type IngestAnswer,
   MAX_CAPTURE_BYTES,
   parseQueuedCapture,
   sha256Hex,
-} from "@x-bookmarks/extension";
+} from "@curio/extension";
 import { insertRawCaptureOnce, parsePendingCaptures } from "./core.ts";
 import { provenAnswer, refuseUnlessExtension } from "./guard.ts";
 

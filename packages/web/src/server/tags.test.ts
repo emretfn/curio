@@ -1,4 +1,4 @@
-import { addTagAlias, retireTag } from "@x-bookmarks/core";
+import { addTagAlias, retireTag } from "@curio/core";
 import { expect, test } from "vitest";
 import { openFiledLibrary, openFixtureLibrary } from "./library-testing.ts";
 import { atLeastOf, DEFAULT_AT_LEAST, getTagsScreen } from "./tags.ts";

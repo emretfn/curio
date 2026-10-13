@@ -1,6 +1,6 @@
-# x-bookmarks MCP server
+# Curio MCP server
 
-Lets Claude read the bookmark library: a local [MCP](https://modelcontextprotocol.io) server over standard input and output, which Claude Code and Claude Desktop start themselves. It is read-only, makes no network request, and is built on the query functions of `@x-bookmarks/core` and nothing else. It runs on the Claude subscription you already use; there is no API key.
+Lets Claude read the bookmark library: a local [MCP](https://modelcontextprotocol.io) server over standard input and output, which Claude Code and Claude Desktop start themselves. It is read-only, makes no network request, and is built on the query functions of `@curio/core` and nothing else. It runs on the Claude subscription you already use; there is no API key.
 
 It needs the library to exist: run the app once (`pnpm app`) so the database is created and migrated. After that the app does not have to be running.
 
@@ -45,13 +45,13 @@ None of that makes a model immune to a persuasive post. What bounds the damage i
 The repo's `.mcp.json` already registers it for this project.
 
 1. Start `claude` in the repo's root directory.
-2. Claude Code asks once whether to use the project's MCP server `x-bookmarks`. Approve it.
-3. Check with `/mcp`: `x-bookmarks` should be connected, with six tools. Then ask, for example, "what did I bookmark about SQLite?".
+2. Claude Code asks once whether to use the project's MCP server `curio`. Approve it.
+3. Check with `/mcp`: `curio` should be connected, with six tools. Then ask, for example, "what did I bookmark about SQLite?".
 
 To have it in every project and not only this one, add it once for your user, with the absolute path to this repo:
 
 ```
-claude mcp add --transport stdio --scope user x-bookmarks -- node /ABSOLUTE/PATH/TO/x-bookmarks/packages/mcp/src/main.ts
+claude mcp add --transport stdio --scope user curio -- node /ABSOLUTE/PATH/TO/curio/packages/mcp/src/main.ts
 ```
 
 ## Use it from Claude Desktop
@@ -72,25 +72,25 @@ Claude Desktop does not read your shell's settings, so both paths must be absolu
    ```json
    {
      "mcpServers": {
-       "x-bookmarks": {
+       "curio": {
          "command": "/ABSOLUTE/PATH/TO/node",
-         "args": ["/ABSOLUTE/PATH/TO/x-bookmarks/packages/mcp/src/main.ts"]
+         "args": ["/ABSOLUTE/PATH/TO/curio/packages/mcp/src/main.ts"]
        }
      }
    }
    ```
 4. Quit Claude Desktop completely and open it again.
-5. In a new chat, click the "+" ("Add files, connectors, and more") below the message box, then **Connectors**: `x-bookmarks` should be listed, with six tools under **Manage connectors**.
+5. In a new chat, click the "+" ("Add files, connectors, and more") below the message box, then **Connectors**: `curio` should be listed, with six tools under **Manage connectors**.
 
 ## Settings
 
-`X_BOOKMARKS_DATA_DIR`: the directory holding `bookmarks.db`, when it is not `data/` in this repo. Set it in the `env` of the server's entry, to the same value the app uses.
+`CURIO_DATA_DIR`: the directory holding `bookmarks.db`, when it is not `data/` in this repo. Set it in the `env` of the server's entry, to the same value the app uses.
 
 ## When it does not work
 
 - **A tool answers "The bookmark library cannot be read".** The message says why. No database yet, or one from before the last update: start the app (`pnpm app`) or run `pnpm reparse` once; either creates and migrates it. The server tries again on the next call, so Claude need not be restarted.
-- **The server does not start.** Run it by hand: `node packages/mcp/src/main.ts` prints one line to standard error naming the database it reads, then waits. A syntax error at that point means `node` is older than 24.12. In Claude Desktop, the server's standard error is in `~/Library/Logs/Claude/mcp-server-x-bookmarks.log`.
-- **Claude Code shows it as pending or rejected.** Pending: it is waiting for the approval of step 2. Rejected: the question was answered with no, which Claude Code remembers in `.claude/settings.local.json`. Either way, `claude mcp reset-project-choices` makes it ask again the next time `claude` starts here. `claude mcp get x-bookmarks` shows which it is.
+- **The server does not start.** Run it by hand: `node packages/mcp/src/main.ts` prints one line to standard error naming the database it reads, then waits. A syntax error at that point means `node` is older than 24.12. In Claude Desktop, the server's standard error is in `~/Library/Logs/Claude/mcp-server-curio.log`.
+- **Claude Code shows it as pending or rejected.** Pending: it is waiting for the approval of step 2. Rejected: the question was answered with no, which Claude Code remembers in `.claude/settings.local.json`. Either way, `claude mcp reset-project-choices` makes it ask again the next time `claude` starts here. `claude mcp get curio` shows which it is.
 
 Nothing the server logs quotes a bookmark or a query.
 

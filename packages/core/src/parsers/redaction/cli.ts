@@ -6,7 +6,7 @@
  *   node cli.ts check [database]   check the fixtures that are on disk
  *
  * The database defaults to the app's own: `bookmarks.db` in
- * `X_BOOKMARKS_DATA_DIR`, or in `data/` at the repo root. Nothing printed
+ * `CURIO_DATA_DIR`, or in `data/` at the repo root. Nothing printed
  * here quotes a capture: only counts, file names and paths.
  */
 import { globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -20,7 +20,7 @@ const fixturesDirectory = join(import.meta.dirname, "../fixtures");
 const repoRoot = join(import.meta.dirname, "../../../../..");
 
 function defaultDatabase(): string {
-  const configured = process.env.X_BOOKMARKS_DATA_DIR;
+  const configured = process.env.CURIO_DATA_DIR;
   return join(
     configured === undefined || configured === ""
       ? join(repoRoot, "data")

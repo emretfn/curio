@@ -49,7 +49,7 @@ export const APP_ORIGIN = `http://${APP_HOST}:${APP_PORT}`;
 export const INGEST_PATH = "/api/ingest";
 export const PAIRING_PATH = "/api/pairing";
 
-/** The capture source this route writes, as `@x-bookmarks/core` names it. */
+/** The capture source this route writes, as `@curio/core` names it. */
 export const CAPTURE_SOURCE = "x-web-client";
 
 /** Larger than any timeline page; a body above it is refused, not truncated. */

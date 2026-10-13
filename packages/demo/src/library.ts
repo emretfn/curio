@@ -25,7 +25,7 @@ import {
   startDigestRun,
   summariseRawCaptures,
   type Week,
-} from "@x-bookmarks/core";
+} from "@curio/core";
 import { AUTHORS, type AuthorKey } from "./authors.ts";
 import { DIGEST } from "./digest.ts";
 import type { PostSpec } from "./post-spec.ts";

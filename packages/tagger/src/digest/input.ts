@@ -13,7 +13,7 @@
  * Not sent either: the week's dates, how a bookmark is filed, or anything
  * else of the library.
  */
-import { type Bookmark, MIN_DIGEST_BOOKMARKS } from "@x-bookmarks/core";
+import { type Bookmark, MIN_DIGEST_BOOKMARKS } from "@curio/core";
 import {
   type ClassifierInput,
   classifierInput,
