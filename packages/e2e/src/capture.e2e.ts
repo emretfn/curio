@@ -37,11 +37,14 @@ import { after, before, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   type Bookmark,
+  finishDigestRun,
   getBookmark,
   getCaptureParse,
   getRawCapture,
   insertRawCapture,
+  latestWeekEnded,
   listBookmarks,
+  listDigestRuns,
   listParseIssues,
   listSnapshots,
   listTaggingRuns,
@@ -50,11 +53,14 @@ import {
   type PostContent,
   parsePendingCaptures,
   type RawCapture,
+  recordClassification,
   type Store,
   searchBookmarks,
+  startDigestRun,
   summariseParsing,
   summariseRawCaptures,
   summariseTagging,
+  weekOf,
 } from "@x-bookmarks/core";
 import {
   APP_HOST,
@@ -2795,4 +2801,246 @@ test("with no API key the new bookmarks wait untagged, the app says why, and not
     "sec-fetch-site": "cross-site",
   });
   assert.equal(fromElsewhere.status, 403);
+});
+
+// --- The weekly digest ------------------------------------------------------
+
+test("with no API key the digest page shows the week, says how a summary is written, and writes none; a stored summary is shown as text and points at posts on the page", {
+  timeout: TEST_TIMEOUT_MS,
+}, async () => {
+  const bookmarks = libraryBookmarks();
+  const from = seedLibrary();
+  // The week most of the fixtures' posts were saved in.
+  const counts = new Map<string, number>();
+  for (const bookmark of bookmarks) {
+    const { key } = weekOf(bookmark.bookmarkedAt);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const [key = ""] = [...counts].toSorted((a, b) => b[1] - a[1])[0] ?? [];
+  const inWeek = bookmarks.filter(
+    (bookmark) => weekOf(bookmark.bookmarkedAt).key === key,
+  );
+  const ids = inWeek.map((bookmark) => bookmark.postId);
+  const [first] = inWeek;
+  assert.ok(first !== undefined && ids.length >= 4);
+  const week = weekOf(first.bookmarkedAt);
+  const mark = fakeX.seen.length;
+
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const weekShown = () =>
+    page.getByTestId("digest-week").getAttribute("data-week");
+  const postsShown = () =>
+    page
+      .getByTestId("digest-posts")
+      .locator("[data-post]")
+      .evaluateAll((posts) =>
+        posts.map((post) => post.getAttribute("data-post-id") ?? ""),
+      );
+
+  // The free part: the week, its count and every post of it, newest first.
+  await page.goto(`${APP_ORIGIN}/digest?week=${key}`);
+  assert.equal(await weekShown(), key);
+  assert.equal(
+    await page.getByTestId("digest-count").textContent(),
+    `${ids.length} bookmarks saved`,
+  );
+  assert.deepEqual(await postsShown(), ids);
+  // Nothing is filed yet, so there is nothing to count or to suggest.
+  assert.match(
+    (await page.getByTestId("digest-unfiled").textContent()) ?? "",
+    /is filed under a category yet/,
+  );
+  assert.match(
+    (await page.getByTestId("digest-no-suggestions").textContent()) ?? "",
+    /No bookmark has been filed yet/,
+  );
+
+  // The written part: there is none, the page says how the owner gets one,
+  // and the app has made no attempt at one. There is no key to make it with.
+  const howTo = page.getByTestId("digest-howto");
+  assert.match(
+    (await howTo.textContent()) ?? "",
+    /No summary has been written for this week/,
+  );
+  assert.match(
+    (await howTo.textContent()) ?? "",
+    new RegExp(`pnpm digest --week ${key} --dry-run`),
+  );
+  assert.equal(await page.getByTestId("digest-written").count(), 0);
+  assert.deepEqual(listDigestRuns(from), []);
+  assert.equal(existsSync(join(dataDirectory, ".env")), false);
+
+  // With no week named, it is the week that last reached its Sunday evening.
+  await page.goto(`${APP_ORIGIN}/digest`);
+  const latest = latestWeekEnded(new Date()).key;
+  assert.equal(await weekShown(), latest);
+  await page.goto(`${APP_ORIGIN}/digest?week=not-a-week`);
+  assert.equal(await weekShown(), latest);
+
+  // The library leads here.
+  const library = await openLibrary("/");
+  assert.equal(
+    await library
+      .getByRole("link", { name: "Weekly digest" })
+      .getAttribute("href"),
+    "/digest",
+  );
+  await library.close();
+
+  // The classifier files four of the week's bookmarks, and the owner has a
+  // summary written. Both are put in the library as core stores them; what
+  // the summary says is what a model talked into anything might say.
+  const [a = "", b = "", c = "", d = ""] = ids;
+  const file = (
+    postId: string,
+    category: string,
+    parts: { little?: boolean; proposed?: string[] } = {},
+  ) =>
+    recordClassification(from, {
+      postId,
+      category,
+      format: "guide",
+      tags: [],
+      tooLittleText: parts.little === true,
+      proposedTags: parts.proposed ?? [],
+      instructionsVersion: 1,
+      model: "a-model",
+    });
+  file(a, "web-dev", { proposed: ["drizzle"] });
+  file(b, "web-dev", { proposed: ["drizzle"] });
+  file(c, "other");
+  file(d, "other", { little: true });
+  const run = startDigestRun(from, {
+    week,
+    startedBy: "owner",
+    model: "a-model",
+    instructionsVersion: 1,
+    bookmarksInWeek: ids.length,
+    postIds: ids,
+    capUsd: 0.5,
+  });
+  const hostile =
+    'A week of walkthroughs. <img src="/pwned.png" onerror="window.pwned=1"><script>window.pwned=1</script>';
+  finishDigestRun(from, run.id, {
+    outcome: "written",
+    text: {
+      overview: hostile,
+      themes: [
+        {
+          title: "Walkthroughs <b>in bold</b>",
+          summary: "Two posts walk through one thing.",
+          postIds: [b, a],
+        },
+      ],
+      worthRevisiting: [{ postId: c, why: "It is the fullest." }],
+    },
+    inputTokens: 1000,
+    cacheWriteTokens: 0,
+    cacheReadTokens: 0,
+    outputTokens: 500,
+    costUsd: 0.014,
+    unansweredRequests: 0,
+  });
+
+  await page.goto(`${APP_ORIGIN}/digest?week=${key}`);
+  const written = page.getByTestId("digest-written");
+  // Shown as text: the markup is letters on the page, and nothing ran.
+  assert.equal(
+    await page.getByTestId("digest-overview").textContent(),
+    hostile,
+  );
+  assert.equal(await written.locator("img, script, b").count(), 0);
+  assert.equal(
+    await page.evaluate(() => "pwned" in window),
+    false,
+    "nothing the summary said was run",
+  );
+  assert.match(
+    (await written.textContent()) ?? "",
+    /Walkthroughs <b>in bold<\/b>/,
+  );
+  assert.match(
+    (await written.textContent()) ?? "",
+    /Written by Claude \(a-model\)/,
+  );
+  assert.equal(await page.getByTestId("digest-howto").count(), 0);
+  // It points at bookmarks by links to posts on this page, in its order.
+  const references = written.locator("a[data-reference]");
+  assert.deepEqual(
+    await references.evaluateAll((links) =>
+      links.map((link) => link.getAttribute("href")),
+    ),
+    [b, a, c].map((id) => `#post-${id}`),
+  );
+  await references.first().click();
+  await waitFor(
+    "the reference to lead to its post",
+    async () => new URL(page.url()).hash === `#post-${b}`,
+  );
+  assert.equal(
+    await page.evaluate((id) => {
+      const post = document.getElementById(`post-${id}`);
+      if (post === null) return false;
+      const { top, bottom } = post.getBoundingClientRect();
+      return bottom > 0 && top < window.innerHeight;
+    }, b),
+    true,
+    "the post it leads to is on screen",
+  );
+
+  // What was saved, by what it is filed under; and what that suggests.
+  const saved = (await page.getByTestId("digest-counts").textContent()) ?? "";
+  assert.match(saved, /Web development\s*2/);
+  assert.match(saved, /Other\s*2/);
+  assert.match(
+    (await page.getByTestId("digest-unfitted").textContent()) ?? "",
+    /^1 bookmark saved this week said enough and still fitted no category\./,
+  );
+  assert.equal(
+    await page.getByTestId("digest-unfitted-link").getAttribute("href"),
+    "/?category=other&tooLittleText=false",
+  );
+  const proposal = page.locator('a[data-proposal="drizzle"]');
+  assert.equal(await proposal.getAttribute("href"), "/?proposedTag=drizzle");
+  assert.match((await proposal.textContent()) ?? "", /drizzle\s*2 bookmarks/);
+
+  // On a narrow screen nothing is cut off, and the other weeks close the page.
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.goto(`${APP_ORIGIN}/digest?week=${key}`);
+  assert.equal(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    ),
+    0,
+    "the page does not scroll sideways at 320 pixels",
+  );
+  const otherWeeks = page.getByRole("navigation", { name: "Other weeks" });
+  const thisWeek = otherWeeks.locator('a[aria-current="page"]');
+  assert.equal(await thisWeek.getAttribute("href"), `/digest?week=${key}`);
+  assert.equal(
+    await thisWeek.getByRole("img").getAttribute("aria-label"),
+    "Summary written",
+  );
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Library", exact: true })
+      .getAttribute("href"),
+    "/",
+  );
+
+  // All of it from this app alone: no post's media, no avatar, nothing of X.
+  assert.deepEqual(
+    fakeX.seen.slice(mark),
+    [],
+    "the digest asked no other host for anything",
+  );
+  // And the page wrote nothing: the one run is the one this test stored.
+  assert.deepEqual(
+    listDigestRuns(from).map(({ id }) => id),
+    [run.id],
+  );
+  await page.close();
 });

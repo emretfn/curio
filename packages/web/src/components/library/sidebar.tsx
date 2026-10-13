@@ -8,8 +8,9 @@
  * needs no script. The number beside each is how many bookmarks it would
  * leave.
  *
- * Room is left on purpose. Tags and categories are further groups in this
- * list; a digest and a chat are further entries beside "All bookmarks".
+ * Beside "All bookmarks" stands the weekly digest, a screen of its own.
+ * Room is left on purpose: tags and categories are further groups in this
+ * list, and a chat is a further entry beside those two.
  */
 import {
   BookmarkX,
@@ -22,6 +23,7 @@ import {
   LibraryBig,
   Link2,
   type LucideIcon,
+  Newspaper,
   Quote,
   ScrollText,
 } from "lucide-react";
@@ -222,6 +224,19 @@ export function SidebarNav({ params, facets }: SidebarProps) {
             <span className="shrink-0 font-normal text-muted-foreground text-xs tabular-nums">
               {whole(facets.librarySize)}
             </span>
+          </Link>
+        </li>
+        <li>
+          <Link
+            href="/digest"
+            prefetch={false}
+            className={cn(
+              ROW,
+              "font-medium outline-none transition-colors duration-150 ease-out hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
+            )}
+          >
+            <Newspaper aria-hidden="true" className="size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Weekly digest</span>
           </Link>
         </li>
       </ul>

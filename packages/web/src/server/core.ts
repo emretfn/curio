@@ -15,13 +15,21 @@
 export const {
   backupStore,
   excerpt,
+  getBookmark,
+  getDigest,
   insertRawCaptureOnce,
+  lastDayOf,
+  latestWeekEnded,
   listBookmarks,
   listParseIssues,
   listSnapshots,
+  listTagProposals,
+  listWeeks,
   listWithheldPosts,
   MAX_PAGE_SIZE,
+  MIN_DIGEST_BOOKMARKS,
   markMatches,
+  OTHER_CATEGORY,
   openStore,
   parsePendingCaptures,
   reparseAllCaptures,
@@ -31,6 +39,11 @@ export const {
   summariseParsing,
   summariseRawCaptures,
   summariseTagging,
+  summariseWeek,
+  TAXONOMY,
+  weekAfter,
+  weekBefore,
+  weekOf,
 }: typeof import("@x-bookmarks/core") = await import(
   /* turbopackIgnore: true */ "@x-bookmarks/core"
 );

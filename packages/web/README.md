@@ -1,6 +1,6 @@
 # x-bookmarks web app
 
-The local app: a Next.js server on <http://127.0.0.1:47130>. It receives raw captures from [the extension](../extension/README.md), stores them through `@x-bookmarks/core`, and parses each one into bookmarks as it arrives. Its main screen (`/`) is the library: the bookmarks, newest saved first, to read, search and filter. It also has a status page (`/status`) and a page of pairing instructions (`/pair`), and it backs the library up once a day.
+The local app: a Next.js server on <http://127.0.0.1:47130>. It receives raw captures from [the extension](../extension/README.md), stores them through `@x-bookmarks/core`, and parses each one into bookmarks as it arrives. Its main screen (`/`) is the library: the bookmarks, newest saved first, to read, search and filter. `/digest` is the weekly digest: one week at a time. It also has a status page (`/status`) and a page of pairing instructions (`/pair`), and it backs the library up once a day.
 
 ```
 pnpm app                                # from the repo root: build, then serve
@@ -32,7 +32,19 @@ The database is `data/bookmarks.db` at the repo root and the pairing token is `d
 - **The list** renders its first page with the screen and asks `GET /api/library` for each next page as the reader nears the end. A list by time continues from core's cursor, which keeps its place while captures arrive; a search, being ranked, is counted off by position. That route reads and never writes; like the other API routes it checks `Host` itself, sends no CORS header, and refuses a request the browser says came from another site.
 - **Status travels with the library.** While all is well it is one line at the foot of the side column. When a capture or an entry was not understood, captures wait for a re-parse, or the last backup failed, a banner above the list says so on every width, and both lead to `/status`.
 - **Keys:** `/` search, `J` and `K` next and previous post, `E` open or close a long post, `M` show the post's media, `O` open the post on X. With focus in a video player: Space plays and pauses, the left and right arrows move 5 seconds, up and down are volume, `<` and `>` speed, `0` to `9` jump to that tenth, `F` fills the screen. The map is `src/lib/shortcuts.ts`, and the player takes none of the list's keys, so `J` and `K` move on from inside one and there is no key for mute.
-- **Room left on purpose:** tags and categories are further groups in the side column and a row under each post's text; a digest and a chat are further entries beside "All bookmarks", and a chat panel is a third column in the grid of `src/app/page.tsx`.
+- **Room left on purpose:** tags and categories are further groups in the side column and a row under each post's text; a chat is a further entry beside "All bookmarks" and "Weekly digest", and a chat panel is a third column in the grid of `src/app/page.tsx`.
+
+## The weekly digest
+
+`/digest` shows one week: Monday to Sunday in the server's time zone, by each post's bookmark time. With no week in the address it is the week that last reached Sunday 18:00, so on a Monday morning it is the week just ended; `/digest?week=2026-10-05` is the week of that Monday, and any day of a week names it. Any past week can be opened: the side column lists every week that holds a bookmark, under its year, with a mark where a summary has been written. On a narrow screen the same list closes the page.
+
+The page has a free part and a written part.
+
+- **The free part** is read from the library each time (`src/server/digest.ts`, which holds no query of its own): how many bookmarks were saved; how they are filed, by category, format and tag; and the posts themselves, newest first under the day each was saved on, drawn by the library's own `PostItem`, so media stays behind "Show media" exactly as in the library. A week is short, so all of it is in the page, not a window of it.
+- **Suggestions for the taxonomy** come from the classifier's stored answers, not from a new request: the week's bookmarks that said enough and still fitted no category, which is how a missing category shows, and the tags proposed for two bookmarks or more. Each leads into the library by core's own filters, written in `src/server/digest-params.ts`: `/?category=other&tooLittleText=false` and `/?proposedTag=<name>`. The library screens that read those parameters are built separately; until they are in, those links open the library unfiltered.
+- **The written part** is Claude's summary of the week: an overview, themes, and posts worth going back to. The app never writes one. `pnpm digest` does, when you run it, and costs a few cents ([the tagger's README](../tagger/README.md#the-weekly-digest)); the page shows what the library then holds, with when and by which model it was written and from how many of the week's bookmarks, and says when bookmarks have been saved since. Where there is none it shows the two commands, the dry run first. A week of fewer than three bookmarks gets none.
+
+What the model wrote is text on the page and nothing else (`src/components/digest/written-summary.tsx`): every string is a text node, no address in it is a link, and a bookmark it points at is a link to that post further down the same page, made from a post id core checked when the digest was stored. `src/server/digest.test.ts` reads these files and fails on `dangerouslySetInnerHTML`, on an import of the tagger and on anything that could start a digest.
 
 ### Media
 
