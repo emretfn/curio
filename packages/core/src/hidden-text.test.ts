@@ -26,3 +26,16 @@ test("what a reader sees is kept: accents, emoji and their ordinary selectors", 
 
   expect(visibleText(text)).toBe(text);
 });
+
+test("what real posts are written with is kept, though it shows as nothing: joiners and direction marks", () => {
+  // An emoji family and a flag are joined by U+200D; Persian spells with
+  // U+200C; a line of Arabic and English is kept in order by U+200F.
+  const family = "\u{1F468}‍\u{1F469}‍\u{1F467}";
+  const flag = "\u{1F3F3}️‍\u{1F308}";
+  const persian = "می‌خواهم";
+  const mixed = "عربي‏ (English)";
+
+  for (const text of [family, flag, persian, mixed]) {
+    expect(visibleText(text), text).toBe(text);
+  }
+});
