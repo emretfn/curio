@@ -66,6 +66,7 @@ test("a new bookmark is first seen when its capture was received, not when it wa
       category: null,
       format: null,
       tags: [],
+      tooLittleText: false,
       corrected: { category: false, format: false, tags: false },
       classification: null,
     },

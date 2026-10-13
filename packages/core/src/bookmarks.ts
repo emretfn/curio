@@ -69,6 +69,13 @@ export interface BookmarkLabels {
   format: string | null;
   /** In alphabetical order. */
   tags: string[];
+  /**
+   * Whether it is under "other" because the classifier found the stored text
+   * too little to tell, and the owner has not filed it anywhere since. False
+   * for every other bookmark, those under "other" that had text enough and
+   * fitted no category among them. The `tooLittleText` filter finds these.
+   */
+  tooLittleText: boolean;
   /** Which of the three the owner has corrected. A correction outlives every later run of the classifier. */
   corrected: { category: boolean; format: boolean; tags: boolean };
   /** The classifier's own answer, whatever the owner made of it. Null until it has classified the bookmark. */
@@ -197,6 +204,7 @@ export interface BookmarkRow {
   ownerCategory: string | null;
   ownerFormat: string | null;
   ownerTags: number;
+  forWantOfText: number;
   classifierCategory: string | null;
   classifierFormat: string | null;
   classifierTags: string;
@@ -311,6 +319,7 @@ export const SELECT_BOOKMARK_COLUMNS = `
          EXISTS (
            SELECT 1 FROM bookmark_tag_corrections
            WHERE post_id = b.post_id) AS ownerTags,
+         ${TOO_LITTLE_TEXT} AS forWantOfText,
          cl.category AS classifierCategory, cl.format AS classifierFormat,
          ${tagsFrom(CLASSIFIER_TAGS)} AS classifierTags,
          cl.proposed_tags AS proposedTags, cl.too_little_text AS tooLittleText,
@@ -373,6 +382,7 @@ function labelsFromRow(row: BookmarkRow): BookmarkLabels {
     category: row.category,
     format: row.format,
     tags: JSON.parse(row.tags) as string[],
+    tooLittleText: row.forWantOfText === 1,
     corrected: {
       category: row.ownerCategory !== null,
       format: row.ownerFormat !== null,
@@ -411,6 +421,7 @@ export function bookmarkFromRow(row: BookmarkRow): Bookmark {
     ownerCategory,
     ownerFormat,
     ownerTags,
+    forWantOfText,
     classifierCategory,
     classifierFormat,
     classifierTags,

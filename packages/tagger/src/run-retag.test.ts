@@ -132,6 +132,7 @@ test("a re-tagging never overwrites what the owner corrected", async () => {
     category: "life",
     format: "discussion",
     tags: ["career", "nextjs"],
+    tooLittleText: false,
     corrected: { category: true, format: true, tags: true },
     classification: expect.objectContaining({
       category: "web-dev",

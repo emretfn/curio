@@ -36,6 +36,7 @@ function bookmark(overrides: Partial<Bookmark> = {}): Bookmark {
       category: null,
       format: null,
       tags: [],
+      tooLittleText: false,
       corrected: { category: false, format: false, tags: false },
       classification: null,
     },
@@ -226,6 +227,7 @@ test("a row and a detail carry what the bookmark is filed under, by the ids the 
       category: "design",
       format: "guide",
       tags: ["animation", "react"],
+      tooLittleText: false,
       corrected: { category: true, format: false, tags: true },
       classification,
     },
@@ -254,6 +256,7 @@ test("a bookmark that has not been classified carries no labels, and one filed f
         category: "other",
         format: "unclear",
         tags: [],
+        tooLittleText: true,
         corrected: { category: false, format: false, tags: false },
         classification: {
           ...classification,

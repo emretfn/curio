@@ -76,6 +76,7 @@ test("what was classified before the migration is as it was, and counts as asked
     category: "web-dev",
     format: "guide",
     tags: ["nextjs", "react"],
+    tooLittleText: false,
     corrected: { category: false, format: false, tags: false },
     classification: {
       category: "web-dev",

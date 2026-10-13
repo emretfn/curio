@@ -219,11 +219,9 @@ export function bookmarkDetail(bookmark: Bookmark) {
     ),
     // The classifier's own account of an "other": the stored text was too
     // little to tell what the post is about.
-    classifier_found_too_little_text:
-      bookmark.labels.classification?.tooLittleText === true &&
-      !bookmark.labels.corrected.category
-        ? true
-        : undefined,
+    classifier_found_too_little_text: bookmark.labels.tooLittleText
+      ? true
+      : undefined,
     ...postDetail(bookmark),
     conversation_id:
       bookmark.conversationId === bookmark.postId

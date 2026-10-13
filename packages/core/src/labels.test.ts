@@ -85,6 +85,7 @@ test("a classification is stored with what produced it and read back as the book
     category: "web-dev",
     format: "guide",
     tags: ["nextjs", "react"],
+    tooLittleText: false,
     corrected: { category: false, format: false, tags: false },
     classification: {
       category: "web-dev",
@@ -205,6 +206,29 @@ test("a bookmark with too little text is filed under other, with or without a mo
     tooLittleText: true,
     model: null,
   });
+});
+
+test("a bookmark's labels say whether it is under other for want of text, until the owner files it", () => {
+  const store = library(3);
+  const little = { category: "other", format: "unclear", tags: [] };
+  recordClassification(store, answer(1, { ...little, tooLittleText: true }));
+  // Text enough, and no category that fits: the other kind of "other".
+  recordClassification(store, answer(2, { category: "other", tags: [] }));
+
+  expect(labels(store, 1).tooLittleText).toBe(true);
+  expect(labels(store, 2).tooLittleText).toBe(false);
+  expect(labels(store, 3).tooLittleText).toBe(false);
+
+  // Filed by the owner, it is no longer there for want of text, whatever the
+  // classifier said; handed back, it is again.
+  correctBookmark(store, postId(1), { category: "design" });
+  expect(labels(store, 1)).toMatchObject({
+    category: "design",
+    tooLittleText: false,
+    classification: { tooLittleText: true },
+  });
+  correctBookmark(store, postId(1), { category: null });
+  expect(labels(store, 1).tooLittleText).toBe(true);
 });
 
 test("what the classifier suggests beyond the vocabulary is kept as a proposal and is no tag", () => {

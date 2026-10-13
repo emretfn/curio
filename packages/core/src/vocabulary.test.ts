@@ -296,7 +296,9 @@ test("a retired tag is on no bookmark, is not offered or proposed again, and com
   expect(listTags(store, { includeRetired: true }).at(-1)).toMatchObject({
     tag: "seo",
     retiredAt: at(2),
-    bookmarks: 2,
+    // Every bookmark that would have it back, the one the owner put it on
+    // by hand among them: the three that get it again below.
+    bookmarks: 3,
   });
   expect(() => retireTag(store, "seo")).toThrow(RangeError);
   expect(() => correctBookmark(store, postId(1), { addTags: ["seo"] })).toThrow(
@@ -468,4 +470,32 @@ test("proposals the vocabulary has come to know some other way are settled in on
   expect(tagsOf(store, 1)).toEqual(["react"]);
   expect(open(store)).toEqual(["drizzle"]);
   expect(settleTagProposals(store)).toBe(0);
+});
+
+test("a retired tag counts the bookmarks that would have it back: the owner's own among them, and none the owner took it off", () => {
+  const store = library(4);
+  classify(store, 1, { tags: ["seo"] });
+  classify(store, 2, { tags: ["seo"] });
+  classify(store, 3, { tags: [] });
+  // The owner takes it off one the classifier gave it to, and puts it on one
+  // the classifier did not, and on one the classifier has never seen.
+  correctBookmark(store, postId(2), { removeTags: ["seo"] });
+  correctBookmark(store, postId(3), { addTags: ["seo"] });
+  correctBookmark(store, postId(4), { addTags: ["seo"] });
+  const counted = () =>
+    listTags(store, { includeRetired: true }).find(({ tag }) => tag === "seo")
+      ?.bookmarks;
+  expect(counted()).toBe(3);
+
+  retireTag(store, "seo");
+
+  // The same three: retiring changes who has it now, not who would.
+  expect(counted()).toBe(3);
+  addTag(store, "seo");
+  expect(counted()).toBe(3);
+  expect(
+    listBookmarks(store, { tags: ["seo"] }).bookmarks.map(
+      (bookmark) => bookmark.postId,
+    ),
+  ).toHaveLength(3);
 });

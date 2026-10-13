@@ -678,7 +678,18 @@ export function listTags(
               t.retired_at AS retiredAt,
               CASE WHEN t.retired_at IS NULL
                 THEN (SELECT count(*) FROM bookmark_effective_tags e WHERE e.tag = t.tag)
-                ELSE (SELECT count(*) FROM bookmark_tags b WHERE b.tag = t.tag)
+                -- What bookmark_effective_tags would hold of it were it not
+                -- retired: the classifier's, less those the owner spoke on,
+                -- plus those the owner added.
+                ELSE (
+                  SELECT count(*) FROM (
+                    SELECT b.post_id FROM bookmark_tags b
+                    WHERE b.tag = t.tag AND NOT EXISTS (
+                      SELECT 1 FROM bookmark_tag_corrections x
+                      WHERE x.post_id = b.post_id AND x.tag = b.tag)
+                    UNION ALL
+                    SELECT x.post_id FROM bookmark_tag_corrections x
+                    WHERE x.tag = t.tag AND x.action = 'add'))
               END AS bookmarks
        FROM tags t
        ${options.includeRetired === true ? "" : "WHERE t.retired_at IS NULL"}

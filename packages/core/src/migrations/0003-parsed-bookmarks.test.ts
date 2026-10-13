@@ -53,6 +53,7 @@ test("a bookmark stored before the migration keeps its content and its first-see
       category: null,
       format: null,
       tags: [],
+      tooLittleText: false,
       corrected: { category: false, format: false, tags: false },
       classification: null,
     },
