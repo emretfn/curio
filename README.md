@@ -93,7 +93,7 @@ pnpm install
 
 1. **Start the app: `pnpm app`.** It builds, which takes about a minute the first time, and then serves <http://127.0.0.1:47130>. Leave it running. The library is empty and says how it fills.
 2. **Build the extension:** in a second terminal, in the same folder, `pnpm extension:build`.
-3. **Load it.** In Chrome open `chrome://extensions`, switch on **Developer mode**, press **Load unpacked** and choose the folder `packages/extension/dist`. Chrome lists it as "Curio capture". Pin its icon to the toolbar.
+3. **Load it.** In Chrome open `chrome://extensions`, switch on **Developer mode**, press **Load unpacked** and choose the folder `packages/extension/dist`. Chrome lists it as "Curio capture". Pin its icon, an open C holding a yellow dot on a dark tile, to the toolbar.
 4. **Pair.** In a second terminal, run `pnpm pair`. Click the extension's icon and paste the token it prints into the popup, then press **Pair**. The popup reads "Paired. Nothing captured yet".
 5. **Capture.** Open your bookmarks on x.com, reloading the tab if it was open before the extension was loaded, and scroll to the bottom by hand at the pace you would read. X loads 20 bookmarks at a step and the popup counts each one; 3,000 bookmarks is about a quarter of an hour.
 6. **Look.** <http://127.0.0.1:47130> lists them, and <http://127.0.0.1:47130/status> says how many responses were stored and understood. "Captures failed" and "Entries failed" should read 0.
