@@ -118,10 +118,11 @@ code {
   border-block-end: 1px solid var(--border);
 }
 
+/* Sixteen pixels, the size it was drawn for: each unit of its grid is one pixel, or two. */
 .mark {
   flex: none;
-  inline-size: 1.125rem;
-  block-size: 1.125rem;
+  inline-size: 1rem;
+  block-size: 1rem;
 }
 
 h1 {

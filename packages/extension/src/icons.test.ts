@@ -47,23 +47,30 @@ test("the web app's icon is the same file, so the tab and the toolbar match", ()
   ).toBe(svg);
 });
 
-test("the mark is drawn on whole units of a 16 grid, in three colours, with no letters", () => {
+test("the mark is a tile, a C and a dot, drawn as shapes on a 16 grid and needing no font", () => {
   const drawing = svg.replace(/<!--[\s\S]*?-->/g, "");
 
   expect(drawing).toContain('viewBox="0 0 16 16"');
+  // The C is a path, not type: it looks the same wherever it is drawn.
   expect(drawing).not.toMatch(/<text|<tspan|font|<image|href|url\(/i);
-  const shapes = shapesOf(drawing);
-  expect(shapes.length).toBeGreaterThan(0);
-  for (const shape of shapes) {
-    expect(shape).toMatch(/^<rect /);
-    // Every edge on a whole pixel of the 16-pixel icon: nothing blurs.
-    for (const [, value] of shape.matchAll(
-      / (?:x|y|width|height)="([^"]+)"/g,
-    )) {
-      expect(Number.isInteger(Number(value)), `${shape}: ${value}`).toBe(true);
-    }
+  const [tile, c, dot, ...more] = shapesOf(drawing);
+  expect(more).toEqual([]);
+
+  // The tile fills the box, so the same file serves a light toolbar and a dark one.
+  expect(tile).toBe('<rect width="16" height="16" rx="4" fill="#171717"');
+  // A ring from 6 units out to 4, about the centre, open to the right
+  // between y 6 and y 10: where it crosses the axes it falls on whole
+  // pixels of the 16-pixel icon.
+  expect(c).toBe(
+    '<path d="M13.657 6A6 6 0 1 0 13.657 10H11.464A4 4 0 1 1 11.464 6Z" fill="#fafafa"',
+  );
+  for (const [radius, reach] of [
+    [6, 13.657],
+    [4, 11.464],
+  ] as const) {
+    // Each end of the opening is on its circle, 2 above or below the centre.
+    expect(Math.hypot(reach - 8, 2)).toBeCloseTo(radius, 2);
   }
-  expect(
-    new Set(shapes.map((shape) => /fill="([^"]+)"/.exec(shape)?.[1])).size,
-  ).toBe(3);
+  // The dot is as wide as the opening it sits behind.
+  expect(dot).toBe('<circle cx="8" cy="8" r="2" fill="#fcdd5b"');
 });

@@ -6,7 +6,7 @@ const read = (path: string) =>
 
 /** A drawing's shapes, one string each, however they are spaced and indented. */
 const shapesOf = (markup: string) =>
-  (markup.match(/<rect\b[^>]*>/g) ?? []).map((shape) =>
+  (markup.match(/<(?:rect|path|circle)\b[^>]*>/g) ?? []).map((shape) =>
     shape.replace(/\s+/g, " ").replace(/ ?\/?>$/, ""),
   );
 
@@ -15,6 +15,7 @@ test("the mark beside the app's name is the app's icon, shape for shape", () => 
     read("../app/icon.svg").replace(/<!--[\s\S]*?-->/g, ""),
   );
 
-  expect(icon.length).toBeGreaterThan(0);
+  // The tile, the C and the dot.
+  expect(icon).toHaveLength(3);
   expect(shapesOf(read("./curio-mark.tsx"))).toEqual(icon);
 });

@@ -292,7 +292,7 @@ export default async function LibraryPage({
         <aside className="sticky top-0 hidden h-dvh flex-col border-e bg-sidebar lg:flex">
           <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 ps-5 pe-3">
             <p className="flex items-center gap-2 font-semibold text-[0.9375rem]">
-              <CurioMark className="size-[1.125rem]" />
+              <CurioMark className="size-4" />
               Curio
             </p>
             <ThemeSetting compact />
