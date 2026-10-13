@@ -1,16 +1,31 @@
 /**
  * The app's keys, in one place, so that two parts of the screen never
- * answer to the same one.
+ * answer to the same one at the same time.
  *
- * The list and the search field own six keys wherever focus is. The video
+ * The list and the search field own their keys wherever focus is. The video
  * player answers to the usual video keys while focus is inside it, and to
- * none of those six: `J` and `K` still move between posts from inside a
- * player, and `M` is still the list's. So there is no key for mute; the
- * volume keys reach silence, and the mute button is one Tab away.
+ * none of the list's but one: `J` and `K` still move between posts from
+ * inside a player, and so do the rest. The one is `M`. On a post it shows
+ * the post's media; inside a player the media is already shown, and `M`
+ * mutes and unmutes, as it does in every other player.
  */
 
-/** Next and previous post, open or close a long post, show media, open on X. */
-export const LIST_KEYS: readonly string[] = ["j", "k", "e", "m", "o"];
+/**
+ * Next and previous post, open or close a long post, show media, open on X;
+ * and what the post is filed under: its category, its format, its tags.
+ */
+export const LIST_KEYS: readonly string[] = [
+  "j",
+  "k",
+  "e",
+  "m",
+  "o",
+  "c",
+  "r",
+  "t",
+];
+/** The list's key that a player takes for itself while focus is inside it. */
+export const MUTE_KEY = "m";
 /** Reaches the search field from anywhere. */
 export const SEARCH_KEY = "/";
 
@@ -26,6 +41,7 @@ export type PlayerAction =
   | { kind: "seek-to"; fraction: number }
   | { kind: "volume-by"; amount: number }
   | { kind: "volume-to"; level: number }
+  | { kind: "mute" }
   | { kind: "speed"; step: 1 | -1 }
   | { kind: "fullscreen" };
 
@@ -50,6 +66,7 @@ export function playerAction(
 ): PlayerAction | null {
   if (ctrlKey || metaKey || altKey) return null;
   const lower = key.toLowerCase();
+  if (lower === MUTE_KEY) return { kind: "mute" };
   if (LIST_KEYS.includes(lower) || key === SEARCH_KEY) return null;
   if (on === "volume") {
     if (key === "ArrowLeft" || key === "ArrowDown") {

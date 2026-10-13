@@ -24,8 +24,9 @@
  * search field, `/`, searches all of the library.
  *
  * Keys, for a reader who lives here: J and K move between posts, E opens and
- * closes a long one, M shows a post's media, O opens it on X. None of them
- * animates anything.
+ * closes a long one, M shows a post's media, O opens it on X, and C, R and T
+ * open what it is filed under: its category, its format, its tags. None of
+ * them animates anything.
  */
 import {
   defaultRangeExtractor,
@@ -74,6 +75,24 @@ const isTyping = (target: EventTarget | null): boolean =>
   target instanceof HTMLElement &&
   (target.isContentEditable ||
     ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+
+/**
+ * Whether a key was pressed in something that is open over the list: a menu,
+ * a list of choices, a dialog. Its keys are its own, a letter typed to find
+ * a choice among them.
+ */
+const isOverTheList = (target: EventTarget | null): boolean =>
+  target instanceof Element &&
+  target.closest(
+    '[role="menu"], [role="listbox"], [role="dialog"], [role="alertdialog"]',
+  ) !== null;
+
+/** The key that opens each part of what a post is filed under. */
+const LABEL_KEYS: Record<string, string> = {
+  c: "category",
+  r: "format",
+  t: "tags",
+};
 
 function Row({ row, total }: { row: ListRow; total: number }) {
   switch (row.kind) {
@@ -403,7 +422,8 @@ export function LibraryList({
         event.metaKey ||
         event.ctrlKey ||
         event.altKey ||
-        isTyping(event.target)
+        isTyping(event.target) ||
+        isOverTheList(event.target)
       ) {
         return;
       }
@@ -442,6 +462,14 @@ export function LibraryList({
         post.querySelector<HTMLElement>("[data-expand]")?.click();
       } else if (key === "m") {
         post.querySelector<HTMLElement>("[data-show-media]")?.click();
+      } else if (LABEL_KEYS[key] !== undefined) {
+        const control = post.querySelector<HTMLElement>(
+          `[data-edit="${LABEL_KEYS[key]}"]`,
+        );
+        if (control === null) return;
+        // The key must not also be typed into the field the control opens.
+        event.preventDefault();
+        control.click();
       }
     };
     document.addEventListener("keydown", onKey);

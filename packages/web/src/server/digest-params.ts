@@ -8,6 +8,7 @@
  */
 import type { Week } from "@x-bookmarks/core";
 import { latestWeekEnded, weekOf } from "./core.ts";
+import { libraryHref, NO_PARAMS } from "./library-params.ts";
 
 const DAY = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/;
 
@@ -40,18 +41,21 @@ export function digestHref(week: Week): string {
 }
 
 /**
- * Where the digest's suggestions lead in the library. Each is a filter of
- * core's query functions under core's own name for it (`category` with
- * `tooLittleText`, and `proposedTag`), so the digest and the screen it
- * leads to ask core the same question. The library screens that read these
- * parameters are being built beside this one: until they are in, the
- * library opens unfiltered. This is the one place the digest writes them.
+ * Where the digest leads in the library. Each is a filter of core's query
+ * functions, written as the library's own address bar writes it
+ * (`libraryHref`), so the digest and the screen it leads to ask core the
+ * same question and there is one spelling of each filter. This is the one
+ * place the digest writes them.
  */
 export const LIBRARY_LINKS = {
   /** Every bookmark that said enough and fitted no category. */
   fittedNoCategory: (other: string) =>
-    `/?${new URLSearchParams({ category: other, tooLittleText: "false" })}`,
+    libraryHref({ ...NO_PARAMS, cat: other, text: "enough" }),
   /** The bookmarks a tag was proposed for. */
   proposedTag: (proposal: string) =>
-    `/?${new URLSearchParams({ proposedTag: proposal })}`,
+    libraryHref({ ...NO_PARAMS, proposed: proposal }),
+  /** The bookmarks filed under a category, of a format, or with a tag. */
+  category: (category: string) => libraryHref({ ...NO_PARAMS, cat: category }),
+  format: (format: string) => libraryHref({ ...NO_PARAMS, fmt: format }),
+  tag: (tag: string) => libraryHref({ ...NO_PARAMS, tag: [tag] }),
 } as const;

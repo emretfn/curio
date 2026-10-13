@@ -121,7 +121,7 @@ The classifier's answer and your corrections are stored apart. What a bookmark i
 
 ## The vocabulary, and how it grows
 
-The tags a bookmark can have are a vocabulary that you change while the app runs. Nothing is edited: every change is a function of core, which a screen calls, and the bookmarks follow at once without the classifier.
+The tags a bookmark can have are a vocabulary that you change while the app runs. Nothing is edited: every change is a function of core, which a screen calls, and the bookmarks follow at once without the classifier. The screen is the app's Tags page (`/tags`); [the web app's README](../web/README.md) has it.
 
 | You | Core | What happens to bookmarks |
 |---|---|---|

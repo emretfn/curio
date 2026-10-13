@@ -20,14 +20,18 @@ import {
   type LibraryBookmark,
   type LibraryItem,
   type LibraryQuery,
+  labelChoices,
   listLibrary,
+  NOT_CLASSIFIED,
   POST_FEATURES,
   type PostFeature,
+  readTags,
 } from "./library.ts";
 import {
   BACKUPS_WELL,
   bookmarksFixture,
   commonWord,
+  openFiledLibrary,
   openFixtureLibrary,
   storeCapture,
 } from "./library-testing.ts";
@@ -651,4 +655,264 @@ test("the status is a problem while the library is not being backed up, whatever
       }).level,
     ).toBe("ok");
   }
+});
+
+// --- What a bookmark is filed under ------------------------------------------
+
+const postIds = (bookmarks: Bookmark[]) =>
+  bookmarks.map(({ postId }) => postId).sort();
+
+test("before anything is classified, nothing is filed, every bookmark is unclassified, and no filter of it finds a thing", () => {
+  const { store, bookmarks } = everyBookmark();
+
+  const facets = getLibraryFacets(store);
+
+  expect(facets.anyFiled).toBe(false);
+  expect(facets.notClassified).toBe(bookmarks.length);
+  expect(facets.categories.map(({ count }) => count)).toEqual(
+    facets.categories.map(() => 0),
+  );
+  expect(facets.formats.map(({ count }) => count)).toEqual(
+    facets.formats.map(() => 0),
+  );
+  expect(facets.other).toEqual({ little: 0, enough: 0 });
+  expect(facets.tags).toEqual([]);
+  expect(everything(store, { category: "web-dev" }).total).toBe(0);
+  expect(everything(store, { category: NOT_CLASSIFIED }).total).toBe(
+    bookmarks.length,
+  );
+});
+
+test("a category lists what is filed under it, the owner's word included, and the counts beside it are what each would leave", () => {
+  const { store, bookmarks, classified, filedByOwner } = openFiledLibrary();
+  const facets = getLibraryFacets(store);
+  const under = (category: string | null) =>
+    bookmarks.filter(({ labels }) => labels.category === category);
+
+  expect(facets.anyFiled).toBe(true);
+  // Every category of the taxonomy but "other", in its order, counted.
+  expect(facets.categories.map(({ id }) => id)).not.toContain("other");
+  for (const { id, count } of facets.categories) {
+    expect(count, id).toBe(under(id).length);
+    expect(postIds(everything(store, { category: id }).bookmarks)).toEqual(
+      postIds(under(id)),
+    );
+  }
+  expect(under("web-dev")).toHaveLength(2);
+  expect(postIds(under("life"))).toEqual([filedByOwner.postId]);
+  // What is filed under none yet, the owner's or the classifier's.
+  expect(facets.notClassified).toBe(bookmarks.length - classified.length - 1);
+  expect(
+    postIds(everything(store, { category: NOT_CLASSIFIED }).bookmarks),
+  ).toEqual(postIds(under(null)));
+  expect(
+    facets.categories.reduce((sum, { count }) => sum + count, 0) +
+      facets.other.little +
+      facets.other.enough +
+      facets.notClassified,
+  ).toBe(bookmarks.length);
+});
+
+test("the two reasons a bookmark is under other are counted and listed apart", () => {
+  const { store, classified } = openFiledLibrary();
+  const [, , , little, enough] = classified;
+
+  expect(getLibraryFacets(store).other).toEqual({ little: 1, enough: 1 });
+  expect(
+    idsOf(
+      everything(store, { category: "other", otherReason: "little" }).items,
+    ),
+  ).toEqual([little?.postId]);
+  expect(
+    idsOf(
+      everything(store, { category: "other", otherReason: "enough" }).items,
+    ),
+  ).toEqual([enough?.postId]);
+  expect(everything(store, { category: "other" }).total).toBe(2);
+  // The reason is asked only of "other": beside another category it is not a filter.
+  expect(
+    everything(store, { category: "web-dev", otherReason: "little" }).total,
+  ).toBe(2);
+  // A bookmark the owner files is no longer there for want of text.
+  expect(little?.labels.tooLittleText).toBe(true);
+  expect(enough?.labels.tooLittleText).toBe(false);
+});
+
+test("a count for the categories sets the chosen category and its reason aside, and respects every other filter", () => {
+  const { store } = openFiledLibrary();
+  const open = getLibraryFacets(store);
+
+  for (const query of [
+    { category: "web-dev" },
+    { category: "other", otherReason: "little" },
+    { category: NOT_CLASSIFIED },
+  ] satisfies LibraryQuery[]) {
+    const chosen = getLibraryFacets(store, query);
+    expect(chosen.categories).toEqual(open.categories);
+    expect(chosen.other).toEqual(open.other);
+    expect(chosen.notClassified).toBe(open.notClassified);
+    expect(chosen.total).toBe(everything(store, query).total);
+  }
+  // Another filter narrows them like everything else.
+  const tagged = getLibraryFacets(store, { tags: ["react"] });
+  expect(tagged.categories.find(({ id }) => id === "web-dev")?.count).toBe(2);
+  expect(tagged.categories.find(({ id }) => id === "design")?.count).toBe(0);
+  expect(tagged.notClassified).toBe(0);
+});
+
+test("formats and tags filter and count like every other filter, and compose with a category, a feature and a search", () => {
+  const { store, bookmarks, classified } = openFiledLibrary();
+  const facets = getLibraryFacets(store);
+
+  for (const { id, count } of facets.formats) {
+    const of = bookmarks.filter(({ labels }) => labels.format === id);
+    expect(count, id).toBe(of.length);
+    expect(postIds(everything(store, { format: id }).bookmarks)).toEqual(
+      postIds(of),
+    );
+  }
+  expect(facets.formats.find(({ id }) => id === "unclear")?.count).toBe(2);
+
+  // The tags among the matches, most bookmarks first.
+  expect(facets.tags[0]).toEqual({ tag: "react", count: 2 });
+  for (const { tag, count } of facets.tags) {
+    const having = bookmarks.filter(({ labels }) => labels.tags.includes(tag));
+    expect(count, tag).toBe(having.length);
+    expect(postIds(everything(store, { tags: [tag] }).bookmarks)).toEqual(
+      postIds(having),
+    );
+  }
+  // Every tag asked for has to be there.
+  expect(idsOf(everything(store, { tags: ["react", "nextjs"] }).items)).toEqual(
+    [classified[0]?.postId],
+  );
+  expect(getLibraryFacets(store, { tags: ["react", "nextjs"] }).tags).toEqual([
+    { tag: "nextjs", count: 1 },
+    { tag: "react", count: 1 },
+  ]);
+
+  // With a category, a format and a tag together.
+  const narrow: LibraryQuery = {
+    category: "web-dev",
+    format: "tip",
+    tags: ["react"],
+  };
+  expect(idsOf(everything(store, narrow).items)).toEqual([
+    classified[1]?.postId,
+  ]);
+  // With a feature of the post, and with a search: each must hold as well.
+  const first = classified[0];
+  if (first === undefined) throw new Error("Nothing is classified.");
+  for (const feature of POST_FEATURES) {
+    const both = everything(store, {
+      category: "web-dev",
+      features: [feature],
+    }).bookmarks;
+    expect(postIds(both)).toEqual(
+      postIds(
+        bookmarks.filter(
+          (bookmark) =>
+            bookmark.labels.category === "web-dev" && HAS[feature](bookmark),
+        ),
+      ),
+    );
+  }
+  const found = everything(store, {
+    text: `@${first.authorHandle}`,
+    category: "web-dev",
+  });
+  expect(found.total).toBeGreaterThan(0);
+  for (const bookmark of found.bookmarks) {
+    expect(bookmark.labels.category).toBe("web-dev");
+  }
+  expect(
+    getLibraryFacets(store, {
+      text: `@${first.authorHandle}`,
+      category: "web-dev",
+    }).total,
+  ).toBe(found.total);
+});
+
+test("a tag may be written another way, and a text that is no tag matches nothing and is named", () => {
+  const { store, classified } = openFiledLibrary();
+
+  // "next.js" is another way of writing the tag, in any case.
+  expect(readTags(store, ["Next.js", "nextjs", "REACT"])).toEqual({
+    known: ["nextjs", "react"],
+    unknown: [],
+  });
+  expect(idsOf(everything(store, { tags: ["Next.js"] }).items)).toEqual([
+    classified[0]?.postId,
+  ]);
+  expect(getLibraryFacets(store, { tags: ["Next.js"] }).chosenTags).toEqual([
+    "nextjs",
+  ]);
+
+  const query: LibraryQuery = { tags: ["react", "no-such-tag"] };
+  expect(everything(store, query)).toMatchObject({ total: 0, items: [] });
+  expect(getLibraryFacets(store, query)).toMatchObject({
+    total: 0,
+    chosenTags: ["react"],
+    unknownTags: ["no-such-tag"],
+  });
+});
+
+test("the bookmarks a tag was proposed for are listed by its name", () => {
+  const { store, classified } = openFiledLibrary();
+  const proposedFor = (name: string) =>
+    postIds(everything(store, { proposedTag: name }).bookmarks);
+
+  expect(proposedFor("server-actions")).toEqual(
+    postIds(classified.slice(0, 2)),
+  );
+  expect(proposedFor("Server Actions")).toEqual(
+    postIds(classified.slice(0, 2)),
+  );
+  expect(proposedFor("server-action")).toEqual([classified[2]?.postId]);
+  expect(proposedFor("never-proposed")).toEqual([]);
+});
+
+test("a post X withholds, which the library never held, is filed under nothing and matches no filter of it", () => {
+  const { store } = openFiledLibrary();
+  const held = (query: LibraryQuery) =>
+    everything(store, { standing: "withheld", ...query }).items.filter(
+      (item) => item.kind === "withheld",
+    );
+
+  expect(held({}).length).toBeGreaterThan(0);
+  for (const query of [
+    { category: "web-dev" },
+    { category: NOT_CLASSIFIED },
+    { format: "guide" },
+    { tags: ["react"] },
+    { proposedTag: "server-actions" },
+  ] satisfies LibraryQuery[]) {
+    expect(held(query)).toEqual([]);
+  }
+});
+
+test("the choices a row's menus offer are the taxonomy's and the vocabulary's own", () => {
+  const { store } = openFiledLibrary();
+
+  const choices = labelChoices(store);
+
+  expect(choices.categories.map(({ id }) => id)).toContain("web-dev");
+  expect(choices.categories.at(-1)).toMatchObject({
+    id: "other",
+    label: "Other",
+  });
+  expect(choices.formats.map(({ id }) => id)).toContain("unclear");
+  for (const { label, definition } of [
+    ...choices.categories,
+    ...choices.formats,
+  ]) {
+    expect(label).toMatch(/\S/);
+    expect(definition).toMatch(/\S/);
+  }
+  expect(choices.tags.map(({ tag }) => tag)).toEqual(
+    choices.tags.map(({ tag }) => tag).toSorted(),
+  );
+  expect(choices.tags.find(({ tag }) => tag === "nextjs")?.aliases).toEqual([
+    "next.js",
+  ]);
 });

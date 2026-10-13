@@ -1,8 +1,10 @@
 /**
  * What was saved in the week, counted by what it is filed under: the free
  * part of a digest, read from the library each time. The labels are the
- * taxonomy's own; a tag is shown by its name.
+ * taxonomy's own; a tag is shown by its name. Each leads to the library
+ * under that filter, where the same names are the side column's.
  */
+import Link from "next/link";
 import { counted, whole } from "@/lib/words";
 
 /** How many tags are listed before the rest are summed. */
@@ -12,6 +14,8 @@ interface Count {
   key: string;
   label: string;
   bookmarks: number;
+  /** Every bookmark of the library filed under it, whatever the week. */
+  href: string;
 }
 
 function CountList({
@@ -34,12 +38,19 @@ function CountList({
         <p className="text-[0.8125rem] text-muted-foreground">None</p>
       ) : (
         <ul aria-labelledby={id} className="flex flex-col gap-1">
-          {counts.map(({ key, label, bookmarks }) => (
+          {counts.map(({ key, label, bookmarks, href }) => (
             <li
               key={key}
               className="flex items-baseline justify-between gap-3 text-[0.8125rem] leading-snug"
             >
-              <span className="min-w-0 break-words">{label}</span>
+              <Link
+                href={href}
+                prefetch={false}
+                title={`Show every bookmark under ${label}`}
+                className="-mx-1 min-w-0 break-words rounded-sm px-1 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {label}
+              </Link>
               <span className="shrink-0 text-muted-foreground tabular-nums">
                 {whole(bookmarks)}
               </span>

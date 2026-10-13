@@ -20,16 +20,21 @@ import type {
   Store,
 } from "@x-bookmarks/core";
 import { CAPTURE_SOURCE } from "@x-bookmarks/extension";
+import type { LabelChoices } from "../components/library/label-choices.tsx";
 import { type BackupStatus, backupFailure } from "./backups.ts";
 import {
+  getVocabulary,
   listBookmarks,
   listWithheldPosts,
   MAX_PAGE_SIZE,
+  OTHER_CATEGORY,
+  resolveTag,
   searchBookmarks,
   summariseLibrary,
   summariseMatches,
   summariseParsing,
   summariseRawCaptures,
+  TAXONOMY,
 } from "./core.ts";
 
 /** Something a post has, to filter on. Each is core's filter of that name. */
@@ -66,6 +71,17 @@ const NAMED_LANGUAGES = LIBRARY_LANGUAGES.filter(
 export const X_STANDINGS = ["removed", "withheld"] as const;
 export type XStanding = (typeof X_STANDINGS)[number];
 
+/**
+ * Why a bookmark is under "other": the stored text was too little to tell,
+ * or there was text enough and no category fitted. The two mean opposite
+ * things and are never counted as one (LAB-10).
+ */
+export const OTHER_REASONS = ["little", "enough"] as const;
+export type OtherReason = (typeof OTHER_REASONS)[number];
+
+/** In place of a category: the bookmarks filed under none yet. */
+export const NOT_CLASSIFIED = "none";
+
 /** What to list. An empty query is the whole library, without what was removed on X. */
 export interface LibraryQuery {
   /**
@@ -84,6 +100,20 @@ export interface LibraryQuery {
   /** X's numeric id of the author. */
   authorId?: string | undefined;
   standing?: XStanding | undefined;
+  /** A category id of the taxonomy, or `NOT_CLASSIFIED` for the bookmarks filed under none yet. */
+  category?: string | undefined;
+  /** Among the bookmarks under "other", only those there for this reason. */
+  otherReason?: OtherReason | undefined;
+  /** A format id of the taxonomy. */
+  format?: string | undefined;
+  /**
+   * Every one of these tags must be on the bookmark. Each is a tag of the
+   * vocabulary or another way of writing one; a text that is neither matches
+   * nothing, and `getLibraryFacets` names it in `unknownTags`.
+   */
+  tags?: readonly string[] | undefined;
+  /** Bookmarks the classifier proposed this tag for, a tag the vocabulary does not hold. */
+  proposedTag?: string | undefined;
 }
 
 /** A bookmark in the library. When it was saved is its `bookmarkedAt`. */
@@ -143,6 +173,32 @@ export interface LibraryFacets {
   standings: Record<XStanding, number>;
   /** The author the query names, when it names one that is in the library. */
   author: { id: string; handle: string; name: string } | null;
+  /**
+   * Whether any bookmark of the library is filed under a category at all.
+   * Before the first run of the classifier none is, and the screen says so
+   * in place of a list of empty categories.
+   */
+  anyFiled: boolean;
+  /**
+   * Every category of the taxonomy but "other", in the taxonomy's order,
+   * with how many bookmarks choosing it would leave.
+   */
+  categories: { id: string; count: number }[];
+  /** The bookmarks under "other", by why they are there. */
+  other: Record<OtherReason, number>;
+  /** The bookmarks filed under no category yet. */
+  notClassified: number;
+  /** Every format of the taxonomy, in its order. */
+  formats: { id: string; count: number }[];
+  /**
+   * The tags on the matching bookmarks, most bookmarks first: each count is
+   * what adding that tag to the query would leave.
+   */
+  tags: { tag: string; count: number }[];
+  /** The query's tags as the vocabulary writes them, an alias resolved to its tag. */
+  chosenTags: string[];
+  /** What the query gave as a tag that is none, or one that was retired. With any, nothing matches. */
+  unknownTags: string[];
 }
 
 /**
@@ -169,11 +225,70 @@ const searchOf = (query: LibraryQuery): string | undefined => {
   return text === "" ? undefined : text;
 };
 
+/**
+ * The query's tags as the vocabulary writes them, each once, and the texts
+ * that are no tag of it. Core refuses a filter that names an unknown tag,
+ * and an address can hold anything, so they are told apart here.
+ */
+export function readTags(
+  store: Store,
+  tags: readonly string[] = [],
+): { known: string[]; unknown: string[] } {
+  const known = new Set<string>();
+  const unknown = new Set<string>();
+  for (const text of tags) {
+    const tag = resolveTag(store, text);
+    if (tag === undefined) unknown.add(text);
+    else known.add(tag);
+  }
+  return { known: [...known], unknown: [...unknown] };
+}
+
+/**
+ * What a bookmark can be filed under, for the menus on each row: the
+ * taxonomy's categories and formats, and the vocabulary's tags as it stands,
+ * each with the other ways it is written.
+ */
+export function labelChoices(store: Store): LabelChoices {
+  const { tags, aliases } = getVocabulary(store);
+  const written = new Map<string, string[]>();
+  for (const [alias, tag] of Object.entries(aliases)) {
+    written.set(tag, [...(written.get(tag) ?? []), alias]);
+  }
+  const choice = ({
+    id,
+    label,
+    definition,
+  }:
+    | (typeof TAXONOMY.categories)[number]
+    | (typeof TAXONOMY.formats)[number]) => ({
+    id,
+    label,
+    definition,
+  });
+  return {
+    categories: TAXONOMY.categories.map(choice),
+    formats: TAXONOMY.formats.map(choice),
+    tags: tags.map((tag) => ({ tag, aliases: written.get(tag) ?? [] })),
+  };
+}
+
 /** The screen's query as core's filter. The search is passed beside it. */
-function filterOf(query: LibraryQuery): BookmarkFilter {
+function filterOf(store: Store, query: LibraryQuery): BookmarkFilter {
   const has = (feature: PostFeature) =>
     query.features?.includes(feature) ? true : undefined;
+  const filed =
+    query.category !== undefined && query.category !== NOT_CLASSIFIED;
   return {
+    category: filed ? query.category : undefined,
+    classified: query.category === NOT_CLASSIFIED ? false : undefined,
+    tooLittleText:
+      query.category === OTHER_CATEGORY && query.otherReason !== undefined
+        ? query.otherReason === "little"
+        : undefined,
+    format: query.format,
+    tags: readTags(store, query.tags).known,
+    proposedTag: query.proposedTag,
     authorId: query.authorId,
     hasMedia: has("media"),
     hasVideo: has("video"),
@@ -201,7 +316,11 @@ const asksForContent = (query: LibraryQuery): boolean =>
   query.language !== undefined ||
   query.savedFrom !== undefined ||
   query.savedBefore !== undefined ||
-  query.authorId !== undefined;
+  query.authorId !== undefined ||
+  query.category !== undefined ||
+  query.format !== undefined ||
+  (query.tags?.length ?? 0) > 0 ||
+  query.proposedTag !== undefined;
 
 const neverHeld = (store: Store, page: { limit: number; offset?: number }) =>
   listWithheldPosts(store, { ...page, bookmarked: false });
@@ -234,7 +353,11 @@ export function listLibrary(
     Math.max(1, Math.trunc(page.limit ?? DEFAULT_PAGE_SIZE)),
   );
   const after = page.after ?? null;
-  const filter = filterOf(query);
+  // A tag the vocabulary does not hold is on no bookmark.
+  if (readTags(store, query.tags).unknown.length > 0) {
+    return { items: [], nextCursor: null, total: 0, terms: [] };
+  }
+  const filter = filterOf(store, query);
 
   const text = searchOf(query);
   if (text !== undefined) {
@@ -299,8 +422,33 @@ export function getLibraryFacets(
   store: Store,
   query: LibraryQuery = {},
 ): LibraryFacets {
-  const options: MatchOptions = { ...filterOf(query), query: searchOf(query) };
+  const options: MatchOptions = {
+    ...filterOf(store, query),
+    query: searchOf(query),
+  };
+  const { known, unknown } = readTags(store, query.tags);
   const matches = summariseMatches(store, options);
+  // What choosing a category would leave is counted with the category that
+  // is chosen now, and the reason beside it, set aside.
+  const anyCategory =
+    query.category === undefined
+      ? matches
+      : summariseMatches(store, {
+          ...options,
+          category: undefined,
+          classified: undefined,
+          tooLittleText: undefined,
+        });
+  const filedUnder = new Map(
+    anyCategory.categories.map(({ category, bookmarks }) => [
+      category,
+      bookmarks,
+    ]),
+  );
+  const ofFormat = new Map(
+    matches.formats.map(({ format, bookmarks }) => [format, bookmarks]),
+  );
+  const library = summariseLibrary(store, { topAuthors: 0 });
   // What choosing a standing would leave is counted with the standing that
   // is chosen now set aside, like every other group.
   const open =
@@ -328,8 +476,27 @@ export function getLibraryFacets(
           limit: 1,
         }).bookmarks;
   return {
-    total: matches.total + (query.standing === "withheld" ? unheld : 0),
-    librarySize: summariseLibrary(store, { topAuthors: 0 }).bookmarks,
+    total:
+      unknown.length > 0
+        ? 0
+        : matches.total + (query.standing === "withheld" ? unheld : 0),
+    librarySize: library.bookmarks,
+    anyFiled: library.categories.some(({ category }) => category !== null),
+    categories: TAXONOMY.categories
+      .filter(({ id }) => id !== OTHER_CATEGORY)
+      .map(({ id }) => ({ id, count: filedUnder.get(id) ?? 0 })),
+    other: {
+      little: anyCategory.tooLittleText,
+      enough: (filedUnder.get(OTHER_CATEGORY) ?? 0) - anyCategory.tooLittleText,
+    },
+    notClassified: filedUnder.get(null) ?? 0,
+    formats: TAXONOMY.formats.map(({ id }) => ({
+      id,
+      count: ofFormat.get(id) ?? 0,
+    })),
+    tags: matches.tags.map(({ tag, bookmarks }) => ({ tag, count: bookmarks })),
+    chosenTags: known,
+    unknownTags: unknown,
     features: {
       media: matches.withMedia,
       video: matches.withVideo,

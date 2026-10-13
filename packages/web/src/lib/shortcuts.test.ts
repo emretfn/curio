@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   LIST_KEYS,
+  MUTE_KEY,
   playerAction,
   SEARCH_KEY,
   SEEK_SECONDS,
@@ -18,15 +19,29 @@ const press = (
   ...modifiers,
 });
 
-test("the player answers to none of the list's keys, whatever has focus in it", () => {
+test("the player answers to none of the list's keys but M, whatever has focus in it", () => {
   for (const key of [...LIST_KEYS, SEARCH_KEY]) {
+    if (key === MUTE_KEY) continue;
     for (const on of ["player", "button", "volume"] as const) {
       expect(playerAction(press(key), on), key).toBeNull();
       expect(playerAction(press(key.toUpperCase()), on), key).toBeNull();
     }
   }
-  expect(LIST_KEYS).toEqual(["j", "k", "e", "m", "o"]);
+  expect(LIST_KEYS).toEqual(["j", "k", "e", "m", "o", "c", "r", "t"]);
   expect(SEARCH_KEY).toBe("/");
+});
+
+test("inside a player M mutes and unmutes, wherever focus is in it, and not with a modifier held", () => {
+  // On a post M shows the post's media. In a player that is done already,
+  // and M is what it is in every player.
+  expect(LIST_KEYS).toContain(MUTE_KEY);
+  for (const on of ["player", "button", "volume"] as const) {
+    expect(playerAction(press("m"), on)).toEqual({ kind: "mute" });
+    expect(playerAction(press("M"), on)).toEqual({ kind: "mute" });
+  }
+  for (const modifier of ["ctrlKey", "metaKey", "altKey"]) {
+    expect(playerAction(press("m", { [modifier]: true }), "player")).toBeNull();
+  }
 });
 
 test("the usual video keys play, seek, change the volume and the speed, and fill the screen", () => {

@@ -1,7 +1,8 @@
 /**
  * The week's posts, newest saved first, under the day each was saved on.
  * Each is the library's own `PostItem`: the same post, the same media rules
- * (nothing is asked of X until the owner asks, X-7), the same links.
+ * (nothing is asked of X until the owner asks, X-7), the same links, and the
+ * same line of what it is filed under, which is corrected here as there.
  *
  * The whole week is in the page, where the library's list draws only the
  * rows near the screen: a week is tens of posts, and the summary above

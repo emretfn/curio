@@ -573,6 +573,14 @@ function controlsOf(video: HTMLVideoElement, root: () => HTMLElement | null) {
       ).webkitEnterFullscreen?.();
     }
   };
+  const toggleMute = () => {
+    if (video.muted || video.volume === 0) {
+      if (video.volume === 0) video.volume = 0.5;
+      video.muted = false;
+    } else {
+      video.muted = true;
+    }
+  };
   return {
     toggle,
     toggleFullscreen,
@@ -580,14 +588,7 @@ function controlsOf(video: HTMLVideoElement, root: () => HTMLElement | null) {
     seekToFraction(fraction: number) {
       seekTo(fraction * video.duration);
     },
-    toggleMute() {
-      if (video.muted || video.volume === 0) {
-        if (video.volume === 0) video.volume = 0.5;
-        video.muted = false;
-      } else {
-        video.muted = true;
-      }
-    },
+    toggleMute,
     /** The next speed, and round to the first after the last. */
     cycleRate() {
       setRate(PLAYBACK_RATES[(rateIndex() + 1) % PLAYBACK_RATES.length] ?? 1);
@@ -607,6 +608,8 @@ function controlsOf(video: HTMLVideoElement, root: () => HTMLElement | null) {
           return setVolume((video.muted ? 0 : video.volume) + action.amount);
         case "volume-to":
           return setVolume(action.level);
+        case "mute":
+          return toggleMute();
         case "speed":
           return setRate(
             PLAYBACK_RATES[
@@ -742,15 +745,6 @@ export function VideoPlayer({
     if (node === null || video === null || controls === null) return;
     const onKey = (event: KeyboardEvent) => {
       const target = event.target instanceof HTMLElement ? event.target : null;
-      if (
-        document.fullscreenElement === node &&
-        (LIST_KEYS.includes(event.key.toLowerCase()) ||
-          event.key === SEARCH_KEY)
-      ) {
-        // Behind a video that fills the screen there is no list to move in.
-        event.stopPropagation();
-        return;
-      }
       const action = playerAction(
         event,
         target?.closest("[data-volume]")
@@ -759,7 +753,17 @@ export function VideoPlayer({
             ? "button"
             : "player",
       );
-      if (action === null) return;
+      if (action === null) {
+        if (
+          document.fullscreenElement === node &&
+          (LIST_KEYS.includes(event.key.toLowerCase()) ||
+            event.key === SEARCH_KEY)
+        ) {
+          // Behind a video that fills the screen there is no list to move in.
+          event.stopPropagation();
+        }
+        return;
+      }
       event.preventDefault();
       controls.perform(action);
       poke();

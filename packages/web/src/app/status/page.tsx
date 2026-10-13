@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { BackupStatusCard } from "@/components/backup-status-card";
 import { StatusBanner } from "@/components/library/status";
+import { TaggingStatusCard } from "@/components/tagging-status-card";
 import {
   Card,
   CardContent,
@@ -13,8 +14,10 @@ import {
 } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/words";
 import { backupStatus } from "@/server/backups";
+import { summariseTagging } from "@/server/core";
 import { sharedStore } from "@/server/data";
 import { getLibraryStatus } from "@/server/library";
+import { appTagging, taggingStatus } from "@/server/tagging";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Status" };
@@ -30,8 +33,9 @@ function Time({ at }: { at: Date | null }) {
 const ROWS =
   "grid grid-cols-[1fr_auto] gap-x-6 gap-y-1.5 [&_dd]:text-end [&_dd]:tabular-nums [&_dt]:text-muted-foreground";
 
-export default function StatusPage() {
-  const status = getLibraryStatus(sharedStore(), backupStatus());
+export default async function StatusPage() {
+  const store = sharedStore();
+  const status = getLibraryStatus(store, backupStatus());
   const { parsing } = status;
   const { captures } = parsing;
   return (
@@ -107,6 +111,11 @@ export default function StatusPage() {
           </dl>
         </CardContent>
       </Card>
+      <TaggingStatusCard
+        summary={summariseTagging(store)}
+        passes={taggingStatus()}
+        appTagging={await appTagging()}
+      />
       <BackupStatusCard backups={status.backups} />
       <Card>
         <CardHeader>

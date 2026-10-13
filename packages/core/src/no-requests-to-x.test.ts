@@ -158,6 +158,16 @@ const MAKES_REQUESTS: Record<string, string> = {
     "The app's own controls around the video element of x-media-element.tsx. It tells that element to play, and to load again when the owner presses Try again after a failure or a hang: each asks X's video CDN for the one address the element was given, and each follows a press (X-7). It names no address, holds no element of its own and starts nothing by itself.",
   "packages/web/src/components/library/load-more.ts":
     "Asks this app for the next page of the list, at the relative address /api/library. The page's Content-Security-Policy lets script connect nowhere else.",
+  "packages/web/src/lib/owner-write.ts":
+    "Sends this app a change the owner made on one of its screens, at the relative address /api/owner/<action>. The page's Content-Security-Policy lets script connect nowhere else.",
+  "packages/web/src/server/page-door.ts":
+    "The page door. It reads the Sec-Fetch-Site header of a request it was sent, to refuse whatever did not come from this app's own page. It answers requests and makes none.",
+  "packages/web/src/server/page-door.test.ts":
+    "Hands that door requests built in the test, with that header set. Nothing is sent.",
+  "packages/web/src/server/owner-writes.test.ts":
+    "Hands the routes behind the page door requests built in the test, with that header set. Nothing is sent.",
+  "packages/web/src/server/testing.ts":
+    "Builds a request as this app's own page sends one, that header included, for those tests. It builds an object and sends nothing.",
   "packages/web/src/server/library-page.ts":
     "A route of this app. It reads the Sec-Fetch-Site header of a request it was sent, to refuse other sites' pages. It answers requests and makes none.",
   "packages/web/src/server/library-page.test.ts":

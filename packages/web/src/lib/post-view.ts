@@ -45,6 +45,9 @@ export interface AuthorView {
   id: string;
   name: string;
   handle: string;
+  /** The name and the handle as shown, cut where a search found something in them. */
+  nameLine: MarkedLine;
+  handleLine: MarkedLine;
   verified: boolean;
   /** Shown in place of the picture, which is never loaded. */
   initials: string;
@@ -55,6 +58,8 @@ export interface AuthorView {
 export interface MediaView {
   kind: "photo" | "video" | "gif";
   alt: string | null;
+  /** The description as shown under a placeholder, cut where a search found something in it. */
+  altLine: MarkedLine | null;
   /** `1:05`, for a video. */
   duration: string | null;
   /** Width over height of the original, when the capture has both. */
@@ -66,7 +71,7 @@ export interface MediaView {
 
 export interface CardView {
   href: string | null;
-  domain: string | null;
+  domain: MarkedLine | null;
   title: MarkedLine | null;
   description: MarkedLine | null;
   imageSrc: string | null;
@@ -111,8 +116,27 @@ export type QuotedView =
   | ({ available: true } & PostBody)
   | { available: false; id: string; url: string | null };
 
+/**
+ * What a bookmark is filed under, as the row shows it and its menus change
+ * it. Ids of the taxonomy and tags of the vocabulary: the names a person
+ * reads come from `LabelChoices`, which the page holds once for every row.
+ */
+export interface LabelsView {
+  /** Null for a bookmark neither the classifier nor the owner has filed. */
+  category: string | null;
+  format: string | null;
+  tags: string[];
+  /** Under "other" because the stored text was too little to tell. */
+  tooLittleText: boolean;
+  /** Which parts are the owner's own word. */
+  corrected: { category: boolean; format: boolean; tags: boolean };
+  /** What the classifier said, where it has: what a part goes back to when the owner hands it back. */
+  classifier: { category: string; format: string; tags: string[] } | null;
+}
+
 export interface PostView extends PostBody {
   kind: "post";
+  labels: LabelsView;
   saved: TimeView;
   /**
    * What the saved time rests on: X confirming the bookmark as it was made,
@@ -221,11 +245,12 @@ function duration(milliseconds: number | null): string | null {
     : clock(Math.round(milliseconds / 1000));
 }
 
-function mediaView(media: PostMedia): MediaView {
+function mediaView(media: PostMedia, terms: readonly string[]): MediaView {
   const alt = media.altText?.trim() ?? "";
   return {
     kind: media.type === "animated_gif" ? "gif" : media.type,
     alt: alt === "" ? null : alt,
+    altLine: alt === "" ? null : marked(alt, terms),
     duration: media.type === "video" ? duration(media.durationMs) : null,
     aspectRatio:
       media.width !== null && media.height !== null && media.height > 0
@@ -257,11 +282,13 @@ function hueOf(id: string): number {
   return hash;
 }
 
-function authorView(post: PostContent): AuthorView {
+function authorView(post: PostContent, terms: readonly string[]): AuthorView {
   return {
     id: post.authorId,
     name: post.authorName,
     handle: post.authorHandle,
+    nameLine: marked(post.authorName, terms),
+    handleLine: marked(post.authorHandle, terms),
     verified: post.authorVerified,
     initials: initialsOf(post.authorName, post.authorHandle),
     hue: hueOf(post.authorId),
@@ -383,7 +410,7 @@ function postBody(
   shortenAbove: { characters: number; lines: number; shown: number },
   terms: readonly string[],
 ): PostBody {
-  const media = post.media.map(mediaView);
+  const media = post.media.map((item) => mediaView(item, terms));
   // A post with an article names it by a link that holds the article's id.
   // The preview below the text stands for that link, so the text drops it.
   const articleId = post.article?.id;
@@ -405,7 +432,7 @@ function postBody(
   return {
     id: post.postId,
     url: postUrlOnX(post.postId, post.authorHandle),
-    author: authorView(post),
+    author: authorView(post, terms),
     lang: languageTag(post.lang),
     replyingTo: post.inReplyToHandle,
     text,
@@ -420,7 +447,10 @@ function postBody(
         ? null
         : {
             href: safeHref(post.card.url),
-            domain: post.card.domain,
+            domain:
+              post.card.domain === null || post.card.domain === ""
+                ? null
+                : marked(post.card.domain, terms),
             title:
               post.card.title === null ? null : marked(post.card.title, terms),
             description:
@@ -463,6 +493,26 @@ function quotedView(
   return { available: true, ...postBody(quoted, SHORTEN_QUOTE_ABOVE, terms) };
 }
 
+/** What a bookmark is filed under, for its row. */
+export function labelsView({ labels }: Bookmark): LabelsView {
+  const { classification } = labels;
+  return {
+    category: labels.category,
+    format: labels.format,
+    tags: labels.tags,
+    tooLittleText: labels.tooLittleText,
+    corrected: labels.corrected,
+    classifier:
+      classification === null
+        ? null
+        : {
+            category: classification.category,
+            format: classification.format,
+            tags: classification.tags,
+          },
+  };
+}
+
 /** Which of the three times core's bookmark time is. See `Bookmark.bookmarkedAt`. */
 function savedBy(bookmark: Bookmark): PostView["savedBy"] {
   const saved = bookmark.bookmarkedAt.getTime();
@@ -490,6 +540,7 @@ export function toItemView(
   return {
     kind: "post",
     ...postBody(bookmark, SHORTEN_POST_ABOVE, terms),
+    labels: labelsView(bookmark),
     saved: timeView(savedAt),
     savedBy: savedBy(bookmark),
     month: { key: month, label: monthFormat.format(savedAt) },

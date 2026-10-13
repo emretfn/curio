@@ -1,14 +1,19 @@
 import { Bookmark, SearchX, X } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { LabelChoicesProvider } from "@/components/library/label-choices";
 import { LibraryFrame, Results } from "@/components/library/library-frame";
 import { LibraryList } from "@/components/library/library-list";
 import { MobileFilters } from "@/components/library/mobile-filters";
 import { SearchBox } from "@/components/library/search-box";
 import { ThemeSetting } from "@/components/library/settings";
 import {
+  categoryLabel,
   FEATURE_LABELS,
+  formatLabel,
   LANGUAGE_LABELS,
+  NOT_CLASSIFIED_LABEL,
+  OTHER_REASON_LABELS,
   SidebarFooter,
   SidebarNav,
   STANDING_LABELS,
@@ -32,7 +37,10 @@ import {
   getLibraryStatus,
   type LibraryFacets,
   type LibraryStatus,
+  labelChoices,
   listLibrary,
+  NOT_CLASSIFIED,
+  readTags,
 } from "@/server/library";
 import {
   isNarrowed,
@@ -97,6 +105,44 @@ function activeFilters(
       key: "on",
       label: STANDING_LABELS[params.on].label,
       href: libraryHref({ ...params, on: undefined }),
+    });
+  }
+  if (params.cat !== undefined) {
+    filters.push({
+      key: "cat",
+      label:
+        params.cat === NOT_CLASSIFIED
+          ? NOT_CLASSIFIED_LABEL
+          : params.text === undefined
+            ? categoryLabel(params.cat)
+            : `${categoryLabel(params.cat)}: ${OTHER_REASON_LABELS[params.text]}`,
+      href: libraryHref({ ...params, cat: undefined, text: undefined }),
+    });
+  }
+  if (params.fmt !== undefined) {
+    filters.push({
+      key: "fmt",
+      label: formatLabel(params.fmt),
+      href: libraryHref({ ...params, fmt: undefined }),
+    });
+  }
+  for (const tag of params.tag) {
+    filters.push({
+      key: `tag:${tag}`,
+      label: facets.unknownTags.includes(tag)
+        ? `#${tag} is not a tag`
+        : `#${tag}`,
+      href: libraryHref({
+        ...params,
+        tag: params.tag.filter((other) => other !== tag),
+      }),
+    });
+  }
+  if (params.proposed !== undefined) {
+    filters.push({
+      key: "proposed",
+      label: `Proposed tag: ${params.proposed}`,
+      href: libraryHref({ ...params, proposed: undefined }),
     });
   }
   return filters;
@@ -201,9 +247,13 @@ export default async function LibraryPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const params = parseLibraryParams(await searchParams);
-  const query = toLibraryQuery(params);
+  const asked = parseLibraryParams(await searchParams);
   const store = sharedStore();
+  // A tag is shown, and linked to, as the vocabulary writes it, whatever
+  // way of writing it the address used.
+  const tags = readTags(store, asked.tag);
+  const params = { ...asked, tag: [...tags.known, ...tags.unknown] };
+  const query = toLibraryQuery(params);
   const status = getLibraryStatus(store, backupStatus());
   const facets = getLibraryFacets(store, query);
   const page = listLibrary(store, query);
@@ -319,16 +369,18 @@ export default async function LibraryPage({
                   {page.total === 0 ? (
                     <NoResults params={params} />
                   ) : (
-                    <LibraryList
-                      key={search}
-                      initialItems={page.items.map((item) =>
-                        toItemView(item, page.terms),
-                      )}
-                      initialCursor={page.nextCursor}
-                      search={search}
-                      ranked={page.terms.length > 0}
-                      total={page.total}
-                    />
+                    <LabelChoicesProvider choices={labelChoices(store)}>
+                      <LibraryList
+                        key={search}
+                        initialItems={page.items.map((item) =>
+                          toItemView(item, page.terms),
+                        )}
+                        initialCursor={page.nextCursor}
+                        search={search}
+                        ranked={page.terms.length > 0}
+                        total={page.total}
+                      />
+                    </LabelChoicesProvider>
                   )}
                 </Results>
               )}

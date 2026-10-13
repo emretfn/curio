@@ -9,6 +9,35 @@ import {
 } from "@x-bookmarks/extension";
 
 export const TOKEN = "kq3vX2mB8sYt0aLr5nWc7dHf1gJz4pQe9uTi6oVbNxM";
+
+/**
+ * A request as a page of this app sends a change from a current browser:
+ * to the app's own address, from the app's own origin, as JSON. `headers`
+ * replace or, when null, remove what the browser would send.
+ */
+export function pageRequest(
+  path: string,
+  body: string,
+  headers: Record<string, string | null> = {},
+): Request {
+  const merged = new Headers({
+    host: new URL(APP_ORIGIN).host,
+    origin: APP_ORIGIN,
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-dest": "empty",
+    "content-type": "application/json",
+  });
+  for (const [name, value] of Object.entries(headers)) {
+    if (value === null) merged.delete(name);
+    else merged.set(name, value);
+  }
+  return new Request(`${APP_ORIGIN}${path}`, {
+    method: "POST",
+    headers: merged,
+    body,
+  });
+}
 export const NONCE = "000102030405060708090a0b0c0d0e0f";
 
 /**

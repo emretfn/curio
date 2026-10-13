@@ -32,6 +32,7 @@ import type {
 } from "@/lib/post-view";
 import { cn } from "@/lib/utils";
 import { MediaScope, MediaStrip, PreviewThumb } from "./media.tsx";
+import { PostLabels } from "./post-labels.tsx";
 import { useRemembered } from "./row-memory.tsx";
 
 /** A link that leaves the app. It opens in a new tab and tells the other site nothing. */
@@ -177,7 +178,7 @@ function Preview({
   imageSrc,
 }: {
   href: string | null;
-  label: string | null;
+  label: MarkedLine | string | null;
   title: MarkedLine | null;
   description: MarkedLine | null;
   imageSrc: string | null;
@@ -185,7 +186,9 @@ function Preview({
   const text = (
     <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-0.5">
       {label !== null ? (
-        <span className="truncate text-muted-foreground text-xs">{label}</span>
+        <span className="truncate text-muted-foreground text-xs">
+          {typeof label === "string" ? label : <Marked line={label} />}
+        </span>
       ) : null}
       {title !== null ? (
         <span className="line-clamp-2 font-medium text-[0.875rem] leading-snug">
@@ -293,8 +296,12 @@ function Quoted({ quoted }: { quoted: QuotedView }) {
       >
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[0.8125rem]">
           <Avatar author={quoted.author} small />
-          <bdi className="font-semibold">{quoted.author.name}</bdi>
-          <span className="text-muted-foreground">@{quoted.author.handle}</span>
+          <bdi className="font-semibold">
+            <Marked line={quoted.author.nameLine} />
+          </bdi>
+          <span className="text-muted-foreground">
+            @<Marked line={quoted.author.handleLine} />
+          </span>
           <span aria-hidden="true" className="text-muted-foreground">
             ·
           </span>
@@ -370,7 +377,7 @@ export const PostItem = memo(function PostItem({
         // it stands among all of them.
         aria-posinset={position}
         aria-setsize={total}
-        className="post-row flex flex-col gap-4 rounded-sm py-7 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-[6px] sm:py-8"
+        className="post-row group/post flex flex-col gap-4 rounded-sm py-7 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-[6px] sm:py-8"
       >
         {/* The author belongs to the text under it: nearer than the rest. */}
         <header className="-mb-1 flex items-center gap-3">
@@ -386,7 +393,9 @@ export const PostItem = memo(function PostItem({
                 title={`Show every bookmark by ${post.author.name}`}
                 className="truncate rounded-sm font-semibold outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <bdi>{post.author.name}</bdi>
+                <bdi>
+                  <Marked line={post.author.nameLine} />
+                </bdi>
               </Link>
               {post.author.verified ? (
                 <BadgeCheck
@@ -396,7 +405,7 @@ export const PostItem = memo(function PostItem({
                 />
               ) : null}
               <span className="truncate font-normal text-muted-foreground">
-                @{post.author.handle}
+                @<Marked line={post.author.handleLine} />
               </span>
             </h3>
             <p className="truncate text-[0.8125rem] text-muted-foreground leading-snug">
@@ -435,7 +444,12 @@ export const PostItem = memo(function PostItem({
         <Attachments post={post} />
         {post.quoted !== null ? <Quoted quoted={post.quoted} /> : null}
 
-        <footer className="mt-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[0.8125rem] text-muted-foreground">
+        {/* What it is filed under belongs with the line beneath it: nearer. */}
+        <div className="-mb-2 mt-1">
+          <PostLabels postId={post.id} initial={post.labels} />
+        </div>
+
+        <footer className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[0.8125rem] text-muted-foreground">
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span title={SAVED_BY[post.savedBy].title}>
               {SAVED_BY[post.savedBy].label} <Time at={post.saved} />

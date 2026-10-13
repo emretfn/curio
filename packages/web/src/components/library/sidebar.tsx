@@ -8,9 +8,11 @@
  * needs no script. The number beside each is how many bookmarks it would
  * leave.
  *
- * Beside "All bookmarks" stands the weekly digest, a screen of its own.
- * Room is left on purpose: tags and categories are further groups in this
- * list, and a chat is a further entry beside those two.
+ * What a bookmark is filed under comes first: its category, its format and
+ * its tags, from core's taxonomy and vocabulary, never from a list written
+ * here. Before anything is classified those three are one line that says
+ * so. Beside "All bookmarks" stand the screens of their own: the weekly
+ * digest, the review queue and the Tags page. A chat is a further entry.
  */
 import {
   BookmarkX,
@@ -20,10 +22,8 @@ import {
   EyeOff,
   FileText,
   ImageIcon,
-  LibraryBig,
   Link2,
   type LucideIcon,
-  Newspaper,
   Quote,
   ScrollText,
 } from "lucide-react";
@@ -32,11 +32,14 @@ import type { ReactNode } from "react";
 import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 import { whole } from "@/lib/words";
+import { OTHER_CATEGORY, TAXONOMY } from "@/server/core";
 import {
   LIBRARY_LANGUAGES,
   type LibraryFacets,
   type LibraryLanguage,
   type LibraryStatus,
+  NOT_CLASSIFIED,
+  type OtherReason,
   POST_FEATURES,
   type PostFeature,
   X_STANDINGS,
@@ -46,8 +49,11 @@ import {
   isNarrowed,
   type LibraryParams,
   libraryHref,
+  toggleCategory,
   toggleFeature,
+  toggleTag,
 } from "@/server/library-params";
+import { Places } from "./places.tsx";
 import { AutoMediaSetting } from "./settings.tsx";
 import { StatusLine } from "./status.tsx";
 
@@ -76,6 +82,23 @@ export const STANDING_LABELS: Record<
   removed: { label: "Removed on X", icon: BookmarkX },
   withheld: { label: "Withheld by X", icon: EyeOff },
 };
+
+/** Why a bookmark is under "other", as a filter names it. */
+export const OTHER_REASON_LABELS: Record<OtherReason, string> = {
+  little: "too little text",
+  enough: "no category fits",
+};
+
+export const NOT_CLASSIFIED_LABEL = "Not classified yet";
+
+/** The name of a category or a format, from the taxonomy. */
+export const categoryLabel = (id: string): string =>
+  TAXONOMY.categories.find((entry) => entry.id === id)?.label ?? id;
+export const formatLabel = (id: string): string =>
+  TAXONOMY.formats.find((entry) => entry.id === id)?.label ?? id;
+
+/** How many tags the side column lists before it points at the page that has them all. */
+const TAGS_SHOWN = 12;
 
 const ROW =
   "flex min-h-8 items-center gap-2 rounded-md px-2 py-1 text-[0.8125rem] leading-snug";
@@ -164,6 +187,9 @@ const SHORTCUTS: [string, string][] = [
   ["E", "Open or close a long post"],
   ["M", "Show the post’s media"],
   ["O", "Open the post on X"],
+  ["C", "Change the post’s category"],
+  ["R", "Change its format"],
+  ["T", "Add or remove its tags"],
 ];
 
 /** With focus in a video player. `src/lib/shortcuts.ts` is what they do. */
@@ -173,6 +199,7 @@ const PLAYER_SHORTCUTS: [string, string][] = [
   ["↑ ↓", "Volume"],
   ["< >", "Slower or faster"],
   ["0–9", "Jump to that tenth"],
+  ["M", "Mute or unmute"],
   ["F", "Full screen"],
 ];
 
@@ -196,6 +223,122 @@ interface SidebarProps {
   facets: LibraryFacets;
 }
 
+/** Category, format and tags: what the bookmarks are filed under. */
+function FiledUnder({ params, facets }: SidebarProps) {
+  if (!facets.anyFiled) {
+    return (
+      <section aria-labelledby="filters-filed-under" className="px-2">
+        <h2
+          id="filters-filed-under"
+          className="font-medium text-muted-foreground text-xs"
+        >
+          Category, format and tags
+        </h2>
+        <p className="mt-1.5 text-[0.8125rem] text-muted-foreground leading-normal">
+          Nothing is classified yet. The{" "}
+          <Link
+            href="/status#tagging"
+            prefetch={false}
+            className="rounded-sm text-foreground underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            status page
+          </Link>{" "}
+          has the command that files the library.
+        </p>
+      </section>
+    );
+  }
+  const reasons = (["little", "enough"] as const).filter(
+    (reason) =>
+      facets.other[reason] > 0 ||
+      (params.cat === OTHER_CATEGORY && params.text === reason),
+  );
+  // The tags chosen stay in the list, whatever else they leave of it.
+  const shown = facets.tags.filter(
+    ({ tag }, index) => index < TAGS_SHOWN || facets.chosenTags.includes(tag),
+  );
+  return (
+    <>
+      <FilterGroup title="Category">
+        {facets.categories.map(({ id, count }) => (
+          <FilterRow
+            key={id}
+            href={libraryHref(toggleCategory(params, id))}
+            active={params.cat === id}
+            count={count}
+          >
+            {categoryLabel(id)}
+          </FilterRow>
+        ))}
+        {reasons.map((reason) => (
+          <FilterRow
+            key={reason}
+            href={libraryHref(toggleCategory(params, OTHER_CATEGORY, reason))}
+            active={params.cat === OTHER_CATEGORY && params.text === reason}
+            count={facets.other[reason]}
+          >
+            {categoryLabel(OTHER_CATEGORY)}: {OTHER_REASON_LABELS[reason]}
+          </FilterRow>
+        ))}
+        {facets.notClassified > 0 || params.cat === NOT_CLASSIFIED ? (
+          <FilterRow
+            href={libraryHref(toggleCategory(params, NOT_CLASSIFIED))}
+            active={params.cat === NOT_CLASSIFIED}
+            count={facets.notClassified}
+          >
+            {NOT_CLASSIFIED_LABEL}
+          </FilterRow>
+        ) : null}
+      </FilterGroup>
+
+      <FilterGroup title="Format">
+        {facets.formats.map(({ id, count }) => (
+          <FilterRow
+            key={id}
+            href={libraryHref({
+              ...params,
+              fmt: params.fmt === id ? undefined : id,
+            })}
+            active={params.fmt === id}
+            count={count}
+          >
+            {formatLabel(id)}
+          </FilterRow>
+        ))}
+      </FilterGroup>
+
+      {shown.length > 0 ? (
+        <FilterGroup title="Tags">
+          {shown.map(({ tag, count }) => (
+            <FilterRow
+              key={tag}
+              href={libraryHref(toggleTag(params, tag))}
+              active={facets.chosenTags.includes(tag)}
+              count={count}
+            >
+              {tag}
+            </FilterRow>
+          ))}
+          {facets.tags.length > shown.length ? (
+            <li>
+              <Link
+                href="/tags#vocabulary"
+                prefetch={false}
+                className={cn(
+                  ROW,
+                  "text-muted-foreground outline-none transition-colors duration-150 ease-out hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+                )}
+              >
+                All {whole(facets.tags.length)} tags here
+              </Link>
+            </li>
+          ) : null}
+        </FilterGroup>
+      ) : null}
+    </>
+  );
+}
+
 /** The filters. This part scrolls when it is taller than the screen. */
 export function SidebarNav({ params, facets }: SidebarProps) {
   const standings = X_STANDINGS.filter(
@@ -208,38 +351,12 @@ export function SidebarNav({ params, facets }: SidebarProps) {
       : [{ year: params.year, count: 0 }, ...facets.savedYears];
   return (
     <nav aria-label="Library" className="flex flex-col gap-5">
-      <ul className="flex flex-col gap-px">
-        <li>
-          <Link
-            href="/"
-            prefetch={false}
-            aria-current={isNarrowed(params) ? undefined : "page"}
-            className={cn(
-              ROW,
-              "font-medium outline-none transition-colors duration-150 ease-out hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring aria-[current=page]:bg-muted",
-            )}
-          >
-            <LibraryBig aria-hidden="true" className="size-3.5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">All bookmarks</span>
-            <span className="shrink-0 font-normal text-muted-foreground text-xs tabular-nums">
-              {whole(facets.librarySize)}
-            </span>
-          </Link>
-        </li>
-        <li>
-          <Link
-            href="/digest"
-            prefetch={false}
-            className={cn(
-              ROW,
-              "font-medium outline-none transition-colors duration-150 ease-out hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
-            )}
-          >
-            <Newspaper aria-hidden="true" className="size-3.5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">Weekly digest</span>
-          </Link>
-        </li>
-      </ul>
+      <Places
+        current={isNarrowed(params) ? undefined : "library"}
+        librarySize={facets.librarySize}
+      />
+
+      <FiledUnder params={params} facets={facets} />
 
       <FilterGroup title="Contains">
         {POST_FEATURES.map((feature) => (

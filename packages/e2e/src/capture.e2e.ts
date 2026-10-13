@@ -37,10 +37,12 @@ import { after, before, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   type Bookmark,
+  correctBookmark,
   finishDigestRun,
   getBookmark,
   getCaptureParse,
   getRawCapture,
+  getVocabulary,
   insertRawCapture,
   latestWeekEnded,
   listBookmarks,
@@ -48,18 +50,26 @@ import {
   listParseIssues,
   listSnapshots,
   listTaggingRuns,
+  listTagProposals,
+  listTags,
   MAX_PAGE_SIZE,
+  type NewClassification,
+  OTHER_CATEGORY,
   openStore,
   type PostContent,
   parsePendingCaptures,
   type RawCapture,
   recordClassification,
+  resolveTag,
   type Store,
   searchBookmarks,
   startDigestRun,
+  summariseMatches,
   summariseParsing,
   summariseRawCaptures,
   summariseTagging,
+  TAXONOMY,
+  UNCLEAR_FORMAT,
   weekOf,
 } from "@x-bookmarks/core";
 import {
@@ -125,6 +135,12 @@ const SHAPES_CAPTURED = 36;
 let appPort = 0;
 /** The app's address as the extension and every page know it. */
 const APP_AUTHORITY = `${APP_HOST}:${APP_PORT}`;
+/**
+ * A domain that, in the test browser, leads to the app: what a site has
+ * after re-pointing its own name at 127.0.0.1 (DNS rebinding). The browser
+ * takes a page on it and the app for one origin.
+ */
+const REBOUND_ORIGIN = "http://rebound.example";
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -302,7 +318,8 @@ function browserArguments(): string[] {
     // app's own address is the one exception: it leads to this run's app, on
     // this run's port, and so never to an app in real use on the fixed one.
     // The first rule that matches applies.
-    `--host-resolver-rules=MAP other-site.example 127.0.0.1:${fakeX.otherSitePort}, MAP ${APP_AUTHORITY} ${APP_HOST}:${appPort}, MAP * 127.0.0.1:${fakeX.port}`,
+    // One more name leads to the app, for the test of a rebound domain.
+    `--host-resolver-rules=MAP other-site.example 127.0.0.1:${fakeX.otherSitePort}, MAP ${APP_AUTHORITY} ${APP_HOST}:${appPort}, MAP ${new URL(REBOUND_ORIGIN).host} ${APP_HOST}:${appPort}, MAP * 127.0.0.1:${fakeX.port}`,
     // The fake server's certificate is self-signed.
     "--ignore-certificate-errors",
     // Treat the fake X as the public site the real one is, so that Chrome's
@@ -1534,6 +1551,7 @@ async function openLibrary(
   await page.goto(`${APP_ORIGIN}${path}`);
   await page.getByTestId("result-count").waitFor();
   await listIsLive(page);
+  await listIsSettled(page);
   return page;
 }
 
@@ -1545,6 +1563,27 @@ const listIsLive = (page: Page) =>
   page.waitForFunction(
     () => document.querySelector('[data-list="static"]') === null,
   );
+
+/**
+ * A row is placed by its measured height a frame or two after the list goes
+ * live, and until then by a guess. A test that reads where things are, or
+ * what is on screen, waits until nothing has moved for a few frames.
+ */
+const listIsSettled = (page: Page) =>
+  page.evaluate(async () => {
+    const places = () =>
+      `${[...document.querySelectorAll("[data-row]")]
+        .map((row) => Math.round(row.getBoundingClientRect().top))
+        .join(",")}/${document.documentElement.scrollHeight}`;
+    let last = "";
+    let still = 0;
+    for (let frame = 0; frame < 120 && still < 4; frame += 1) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const now = places();
+      still = now === last ? still + 1 : 0;
+      last = now;
+    }
+  });
 
 const resultCount = (page: Page) =>
   page.getByTestId("result-count").textContent();
@@ -1779,6 +1818,8 @@ test("search and filters narrow the library, and a search that finds nothing say
 
   // A long post is shortened, and opens where it stands.
   await page.goto(`${APP_ORIGIN}/?has=long`);
+  // A row is drawn again when the list goes live, under new ids.
+  await listIsLive(page);
   const expand = page.locator("[data-expand]").first();
   const text = page.locator(
     `[id="${await expand.getAttribute("aria-controls")}"]`,
@@ -2307,7 +2348,7 @@ function assertPlainVideoRequests(requests: SeenRequest[], path: string) {
   }
 }
 
-test("a video plays in the library's own player: only a press on play asks for the file, the video keys work, and the list keeps its own", {
+test("a video plays in the library's own player: only a press on play asks for the file, the video keys work, M mutes, and the list keeps the rest of its own", {
   timeout: TEST_TIMEOUT_MS,
 }, async () => {
   const bookmarks = libraryBookmarks();
@@ -2423,8 +2464,10 @@ test("a video plays in the library's own player: only a press on play asks for t
   await page.keyboard.press("Space");
   await playing("the video to play again");
 
-  // The list's keys stay the list's, from inside the player: M does not
-  // mute, and J and K move between posts while the video plays on.
+  // M shows a post's media anywhere else in the list. Inside the player the
+  // media is shown already, and M mutes and unmutes, as in any player; it
+  // asks no host for anything. The list's other keys stay the list's: J and
+  // K move between posts while the video plays on.
   const focusedPost = () =>
     page.evaluate(() =>
       [...document.querySelectorAll("[data-post]")].indexOf(
@@ -2433,7 +2476,11 @@ test("a video plays in the library's own player: only a press on play asks for t
     );
   const here = await focusedPost();
   await page.keyboard.press("m");
+  assert.equal((await state()).muted, true);
+  await player.getByRole("button", { name: "Unmute" }).waitFor();
+  await page.keyboard.press("M");
   assert.equal((await state()).muted, false);
+  await player.getByRole("button", { name: "Mute", exact: true }).waitFor();
   await page.keyboard.press("j");
   assert.equal(await focusedPost(), here + 1);
   await page.keyboard.press("k");
@@ -2482,17 +2529,14 @@ test("a video plays in the library's own player: only a press on play asks for t
   );
 
   // In all of it the video host was asked for that one file and nothing
-  // else, plainly. The poster was never asked for a second time. The one
-  // thing any other host was asked for is what M asks for anywhere in the
-  // list: the media of the post this one quotes, when it quotes one.
+  // else, plainly, and no other host was asked for anything: the poster was
+  // never asked for a second time, and M, inside the player, showed no
+  // further media.
   assertPlainVideoRequests(toVideoHost(mark), file);
-  const quoted = video.quoted?.available ? picturesOf(video.quoted) : [];
-  for (const request of fakeX.seen.slice(mark)) {
-    if (request.host === MEDIA_HOSTS.video) continue;
-    assert.equal(request.host, MEDIA_HOSTS.image);
-    assert.ok(!picturesOf(video).includes(request.path), "not the poster");
-    assert.ok(quoted.includes(request.path), "the quoted post's, shown by M");
-  }
+  assert.deepEqual(
+    fakeX.seen.slice(mark).filter(({ host }) => host !== MEDIA_HOSTS.video),
+    [],
+  );
 
   try {
     // A video that is not there says so, and is asked for again only when
@@ -2879,6 +2923,101 @@ test("the app tags nothing by itself until the owner's .env says so, and with th
   assert.equal(fromElsewhere.status, 403);
 });
 
+// --- What a bookmark is filed under, before anything is ------------------
+
+test("before anything is classified every screen says so, names the command, and holds no control that could start a run", {
+  timeout: TEST_TIMEOUT_MS,
+}, async () => {
+  const from = seedLibrary();
+  const standing = summariseTagging(from);
+  assert.equal(standing.classified, 0, "nothing is classified yet in this run");
+
+  // The library: one line in place of three lists of empty filters, and
+  // every post says the same of itself.
+  const page = await openLibrary("/");
+  const nav = page.getByRole("navigation", { name: "Library" });
+  assert.match((await nav.textContent()) ?? "", /Nothing is classified yet/);
+  for (const group of ["Category", "Format", "Tags"]) {
+    assert.equal(
+      await nav.getByRole("heading", { name: group, exact: true }).count(),
+      0,
+    );
+  }
+  assert.equal(
+    await nav.getByRole("link", { name: "status page" }).getAttribute("href"),
+    "/status#tagging",
+  );
+  const firstPost = page.locator("[data-post]").first();
+  assert.match(
+    (await firstPost.locator('[data-edit="category"]').textContent()) ?? "",
+    /Not classified yet/,
+  );
+
+  // The review queue and the proposals have nothing in them, and say why.
+  await page.goto(`${APP_ORIGIN}/review`);
+  const nothing = page.getByTestId("nothing-to-review");
+  await nothing.waitFor();
+  assert.match((await nothing.textContent()) ?? "", /Nothing to review yet/);
+  for (const queue of ["little", "unfit", "unclear"]) {
+    assert.equal(
+      await page.getByTestId(`review-count-${queue}`).textContent(),
+      "0",
+    );
+  }
+  await page.goto(`${APP_ORIGIN}/tags`);
+  await page.getByTestId("no-proposals").waitFor();
+  assert.equal(
+    await page.locator("[data-tag]").count(),
+    listTags(from).length,
+    "the vocabulary the library began with is listed all the same",
+  );
+
+  // The status page: the counts, the command, and nothing to press.
+  await page.goto(`${APP_ORIGIN}/status`);
+  const card = page.locator("#tagging");
+  assert.equal(
+    await card.getByTestId("tagging-classified").textContent(),
+    `0 of ${standing.bookmarks}`,
+  );
+  assert.equal(
+    await card.getByTestId("tagging-unclassified").textContent(),
+    String(standing.bookmarks),
+  );
+  assert.equal(await card.getByTestId("tagging-spent").textContent(), "$0.00");
+  // It says plainly that the app does not tag by itself, and how that is
+  // changed: by a line of a file, which no control here writes.
+  const byItself = card.getByTestId("tagging-app");
+  assert.equal(await byItself.getAttribute("data-on"), null);
+  assert.match(
+    (await byItself.textContent()) ?? "",
+    /^Off\. Tagging by the app is off: by itself the app sends nothing to the API and spends nothing\./,
+  );
+  assert.equal(
+    await card.getByTestId("tagging-last-run").textContent(),
+    "none yet",
+  );
+  const command =
+    (await card.getByTestId("tagging-command").textContent()) ?? "";
+  assert.match(command, /pnpm tag --dry-run/);
+  assert.match(command, /pnpm tag(?! --dry-run)/);
+  assert.equal(
+    await card.locator("button, input, select, textarea, form").count(),
+    0,
+    "the card shows how tagging stands, and starts nothing",
+  );
+  assert.deepEqual(
+    unique(
+      await card
+        .getByRole("link")
+        .evaluateAll((links) =>
+          links.map((link) => link.getAttribute("href") ?? ""),
+        ),
+    ),
+    ["/review", "/tags"],
+  );
+  await page.close();
+});
+
 // --- The weekly digest ------------------------------------------------------
 
 test("with no API key the digest page shows the week, says how a summary is written, and writes none; a stored summary is shown as text and points at posts on the page", {
@@ -3075,10 +3214,10 @@ test("with no API key the digest page shows the week, says how a summary is writ
   );
   assert.equal(
     await page.getByTestId("digest-unfitted-link").getAttribute("href"),
-    "/?category=other&tooLittleText=false",
+    "/?cat=other&text=enough",
   );
   const proposal = page.locator('a[data-proposal="drizzle"]');
-  assert.equal(await proposal.getAttribute("href"), "/?proposedTag=drizzle");
+  assert.equal(await proposal.getAttribute("href"), "/?proposed=drizzle");
   assert.match((await proposal.textContent()) ?? "", /drizzle\s*2 bookmarks/);
 
   // On a narrow screen nothing is cut off, and the other weeks close the page.
@@ -3118,5 +3257,1171 @@ test("with no API key the digest page shows the week, says how a summary is writ
     listDigestRuns(from).map(({ id }) => id),
     [run.id],
   );
+  await page.close();
+});
+
+// --- What a bookmark is filed under ------------------------------------------
+
+/**
+ * What the classifier is made to have said of the library's first bookmarks,
+ * newest first: a few categories and formats, the two kinds of "other", two
+ * unclear formats, and proposals, one of them under two spellings. No model
+ * is asked and nothing is spent: the answers are written through core, as
+ * the classifier writes them, into this run's own database.
+ */
+const ANSWERS: Omit<
+  NewClassification,
+  "postId" | "instructionsVersion" | "model"
+>[] = [
+  {
+    category: "web-dev",
+    format: "guide",
+    tags: ["nextjs", "react"],
+    proposedTags: ["server-actions"],
+    tooLittleText: false,
+  },
+  {
+    category: "web-dev",
+    format: "tip",
+    tags: ["react"],
+    proposedTags: ["server-actions", "prisma-orm"],
+    tooLittleText: false,
+  },
+  {
+    category: "design",
+    format: "showcase",
+    tags: ["animation"],
+    proposedTags: ["server-action"],
+    tooLittleText: false,
+  },
+  { category: "other", format: "unclear", tags: [], tooLittleText: true },
+  { category: "other", format: "discussion", tags: [], tooLittleText: false },
+  {
+    category: "tools",
+    format: "unclear",
+    tags: ["self-hosting"],
+    proposedTags: ["htmx"],
+    tooLittleText: false,
+  },
+];
+let filedPosts: string[] | undefined;
+
+/** Files the library's first bookmarks as `ANSWERS` says, once, and returns their ids in that order. */
+function seedLabels(): string[] {
+  if (filedPosts !== undefined) return filedPosts;
+  const from = seedLibrary();
+  const newest = libraryBookmarks().slice(0, ANSWERS.length);
+  assert.equal(newest.length, ANSWERS.length);
+  newest.forEach(({ postId }, index) => {
+    const answer = ANSWERS[index];
+    assert.ok(answer);
+    recordClassification(from, {
+      ...answer,
+      postId,
+      instructionsVersion: 1,
+      model: "a-model",
+    });
+  });
+  filedPosts = newest.map(({ postId }) => postId);
+  return filedPosts;
+}
+
+function labelsOf(postId: string | undefined) {
+  const bookmark = getBookmark(seedLibrary(), postId ?? "");
+  assert.ok(bookmark, `bookmark ${postId} is in the library`);
+  return bookmark.labels;
+}
+
+const categoryLabel = (id: string) =>
+  TAXONOMY.categories.find((entry) => entry.id === id)?.label ?? id;
+const formatLabel = (id: string) =>
+  TAXONOMY.formats.find((entry) => entry.id === id)?.label ?? id;
+/** The digit that chooses an entry in an open menu: its place in the taxonomy, from 1. */
+const digitOf = (entries: readonly { id: string }[], id: string) =>
+  String(entries.findIndex((entry) => entry.id === id) + 1);
+
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** A filter in the side column, by the name it starts with. */
+const filterLink = (page: Page, name: string) =>
+  page
+    .getByRole("navigation", { name: "Library" })
+    .getByRole("link", { name: new RegExp(`^${escaped(name)}`) });
+
+/** The number beside a filter. */
+async function countBeside(link: Locator): Promise<number> {
+  const [, count = ""] =
+    /([0-9,]+)(?:Selected\. Select to remove\.)?$/.exec(
+      (await link.textContent()) ?? "",
+    ) ?? [];
+  return Number(count.replaceAll(",", ""));
+}
+
+/** Every post id core lists for a filter, newest saved first. */
+function listed(filter: Parameters<typeof listBookmarks>[1]): string[] {
+  return listBookmarks(seedLibrary(), {
+    ...filter,
+    limit: MAX_PAGE_SIZE,
+  }).bookmarks.map(({ postId }) => postId);
+}
+
+/** How many bookmarks core counts for a filter. */
+const howMany = (filter: Parameters<typeof listBookmarks>[1]) =>
+  listBookmarks(seedLibrary(), { ...filter, limit: 1 }).total;
+
+const focusedPostId = (page: Page) =>
+  page.evaluate(
+    () =>
+      document.activeElement
+        ?.closest("[data-post]")
+        ?.getAttribute("data-post-id") ?? null,
+  );
+
+/**
+ * Chooses a tag in a list that a button opens: waits for the list's field to
+ * take the keyboard, types enough of the name to find it, and presses Enter.
+ */
+async function pickTag(page: Page, opener: Locator, text: string) {
+  await opener.click();
+  await waitFor("the list's field to take the keyboard", () =>
+    page.evaluate(
+      () =>
+        document.activeElement?.tagName === "INPUT" &&
+        document.activeElement.getAttribute("placeholder") === "Find a tag",
+    ),
+  );
+  await page.keyboard.type(text);
+  await page.getByRole("option").first().waitFor();
+  await page.keyboard.press("Enter");
+}
+
+/** What the app was asked to change by a page, as paths. */
+function watchWrites(page: Page): string[] {
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() !== "GET") {
+      writes.push(`${request.method()} ${new URL(request.url()).pathname}`);
+    }
+  });
+  return writes;
+}
+
+test("category, format and tag filters narrow the library with a count beside each, and compose with a search and every other filter", {
+  timeout: TEST_TIMEOUT_MS,
+}, async () => {
+  const filed = seedLabels();
+  const from = seedLibrary();
+  const total = libraryBookmarks().length;
+  const mark = fakeX.seen.length;
+  const page = await openLibrary("/");
+  /** What the count line reads for a filter, as core counts it. */
+  const narrowedTo = (filter: Parameters<typeof listBookmarks>[1]) =>
+    `${howMany(filter)} of ${total} bookmarks`;
+
+  // Each category and format with the number core counts for it.
+  const summary = summariseMatches(from);
+  const counted = new Map<string | null, number>(
+    summary.categories.map(({ category, bookmarks }) => [category, bookmarks]),
+  );
+  for (const { id } of TAXONOMY.categories) {
+    if (id === OTHER_CATEGORY) continue;
+    const link = filterLink(page, categoryLabel(id));
+    if ((counted.get(id) ?? 0) === 0) {
+      // A filter that would leave nothing is shown, and is not a link.
+      assert.equal(await link.count(), 0, id);
+    } else {
+      assert.equal(await countBeside(link), counted.get(id), id);
+    }
+  }
+  for (const { format, bookmarks } of summary.formats) {
+    if (format === null) continue;
+    assert.equal(
+      await countBeside(filterLink(page, formatLabel(format))),
+      bookmarks,
+      format,
+    );
+  }
+  // The two reasons a bookmark is under "other", apart; and what is filed
+  // under nothing yet.
+  const other = categoryLabel(OTHER_CATEGORY);
+  assert.ok(summary.tooLittleText >= 1);
+  assert.equal(
+    await countBeside(filterLink(page, `${other}: too little text`)),
+    summary.tooLittleText,
+  );
+  assert.equal(
+    await countBeside(filterLink(page, `${other}: no category fits`)),
+    (counted.get(OTHER_CATEGORY) ?? 0) - summary.tooLittleText,
+  );
+  assert.equal(
+    await countBeside(filterLink(page, "Not classified yet")),
+    counted.get(null),
+  );
+  assert.equal(counted.get(null), howMany({ classified: false }));
+
+  // A category is a link, like every filter: it narrows the list to what
+  // core lists under it, and each post says what it is filed under.
+  await filterLink(page, categoryLabel("web-dev")).click();
+  await page.waitForURL((url) => url.searchParams.get("cat") === "web-dev");
+  await waitFor(
+    "the category to narrow the list",
+    async () =>
+      (await resultCount(page)) === narrowedTo({ category: "web-dev" }),
+  );
+  assert.ok(howMany({ category: "web-dev" }) >= 2);
+  assert.deepEqual(await everyPost(page), listed({ category: "web-dev" }));
+  assert.equal(
+    await filterLink(page, categoryLabel("web-dev")).getAttribute(
+      "aria-current",
+    ),
+    "true",
+  );
+  const first = page.locator(`[data-post-id="${filed[0]}"]`).first();
+  assert.equal(
+    await first.locator('[data-edit="category"]').getAttribute("data-value"),
+    "web-dev",
+  );
+  assert.match(
+    (await first.locator('[data-edit="category"]').textContent()) ?? "",
+    new RegExp(escaped(categoryLabel("web-dev"))),
+  );
+  assert.match(
+    (await first.locator('[data-edit="format"]').textContent()) ?? "",
+    new RegExp(escaped(formatLabel("guide"))),
+  );
+  assert.deepEqual(await first.locator("[data-labels] a").allTextContents(), [
+    "#nextjs",
+    "#react",
+  ]);
+
+  // A format and a tag on top of it: each narrows what the others left.
+  const tips = { category: "web-dev", format: "tip" };
+  await filterLink(page, formatLabel("tip")).click();
+  await page.waitForURL((url) => url.searchParams.get("fmt") === "tip");
+  await waitFor(
+    "the format to narrow it further",
+    async () => (await resultCount(page)) === narrowedTo(tips),
+  );
+  assert.equal(
+    await countBeside(filterLink(page, "react")),
+    howMany({ ...tips, tags: ["react"] }),
+  );
+  await filterLink(page, "react").click();
+  await page.waitForURL((url) => url.searchParams.get("tag") === "react");
+  await listIsLive(page);
+  assert.deepEqual(
+    await shownPosts(page),
+    listed({ ...tips, tags: ["react"] }),
+  );
+  assert.ok((await shownPosts(page)).includes(filed[1] ?? ""));
+  const chips = await page
+    .getByRole("link", { name: /^Remove filter: / })
+    .allTextContents();
+  assert.deepEqual(
+    chips.map((chip) => chip.replace("Remove filter: ", "")),
+    [categoryLabel("web-dev"), formatLabel("tip"), "#react"],
+  );
+  // The other categories stay on offer while one is chosen, each with what
+  // choosing it would leave of the rest of the filters.
+  assert.equal(
+    await countBeside(filterLink(page, categoryLabel("web-dev"))),
+    howMany({ category: "web-dev", format: "tip", tags: ["react"] }),
+  );
+
+  // With a feature of the post, and with a search.
+  await page.goto(`${APP_ORIGIN}/?cat=web-dev&has=link`);
+  await waitFor(
+    "the category and the feature together",
+    async () =>
+      (await resultCount(page)) ===
+      narrowedTo({ category: "web-dev", hasLink: true }),
+  );
+  const author = getBookmark(from, filed[0] ?? "");
+  assert.ok(author);
+  const query = `@${author.authorHandle}`;
+  const found = searchBookmarks(from, {
+    query,
+    category: "web-dev",
+    limit: MAX_PAGE_SIZE,
+  });
+  assert.ok(found.total >= 1);
+  await page.goto(`${APP_ORIGIN}/?cat=web-dev&q=${encodeURIComponent(query)}`);
+  await listIsLive(page);
+  assert.equal(await resultCount(page), `${found.total} of ${total} bookmarks`);
+  assert.deepEqual(
+    await everyPost(page),
+    found.hits.map(({ bookmark }) => bookmark.postId),
+  );
+
+  // What is not classified yet, and each reason for "other" by itself.
+  await page.goto(`${APP_ORIGIN}/?cat=none`);
+  await listIsLive(page);
+  assert.equal(await resultCount(page), narrowedTo({ classified: false }));
+  assert.match(
+    (await page
+      .locator("[data-post]")
+      .first()
+      .locator('[data-edit="category"]')
+      .textContent()) ?? "",
+    /Not classified yet/,
+  );
+  await page.goto(`${APP_ORIGIN}/`);
+  await filterLink(page, `${other}: too little text`).click();
+  await page.waitForURL(
+    (url) =>
+      url.searchParams.get("cat") === OTHER_CATEGORY &&
+      url.searchParams.get("text") === "little",
+  );
+  await listIsLive(page);
+  const little = listed({ category: OTHER_CATEGORY, tooLittleText: true });
+  assert.ok(little.includes(filed[3] ?? ""));
+  assert.deepEqual(await everyPost(page), little);
+  assert.match(
+    (await page.locator("[data-post] [data-labels]").first().textContent()) ??
+      "",
+    /too little text to tell/,
+  );
+
+  // A tag written another way in the address is read as its tag, and a
+  // text that is no tag finds nothing and says so.
+  await page.goto(`${APP_ORIGIN}/?tag=Next.js`);
+  await listIsLive(page);
+  assert.deepEqual(await shownPosts(page), listed({ tags: ["nextjs"] }));
+  assert.equal(
+    await filterLink(page, "nextjs").getAttribute("aria-current"),
+    "true",
+  );
+  assert.deepEqual(
+    await page
+      .getByRole("link", { name: /^Remove filter: / })
+      .allTextContents(),
+    ["Remove filter: #nextjs"],
+  );
+  await page.goto(`${APP_ORIGIN}/?tag=no-such-tag`);
+  await page.getByTestId("no-results").waitFor();
+  assert.deepEqual(
+    await page
+      .getByRole("link", { name: /^Remove filter: / })
+      .allTextContents(),
+    ["Remove filter: #no-such-tag is not a tag"],
+  );
+
+  assert.deepEqual(
+    fakeX.seen.slice(mark),
+    [],
+    "browsing by what bookmarks are filed under asked no other host for anything",
+  );
+  await page.close();
+});
+
+test("a post's category, format and tags are corrected from the keyboard and by pointer, kept as the owner's word, and are there after a reload", {
+  timeout: TEST_TIMEOUT_MS,
+}, async () => {
+  const filed = seedLabels();
+  const target = filed[0];
+  const mark = fakeX.seen.length;
+  const page = await openLibrary("/?cat=web-dev");
+  const writes = watchWrites(page);
+  const post = page.locator(`[data-post-id="${target}"]`).first();
+  const control = (part: string) => post.locator(`[data-edit="${part}"]`);
+  const menu = page.getByRole("menu");
+  // The list as it stands when the page is opened: what J moves through.
+  const inOrder = listed({ category: "web-dev" });
+  /** A menu takes the keyboard a moment after it opens; a digit is for it. */
+  const menuHasTheKeyboard = () =>
+    waitFor("the menu to take the keyboard", () =>
+      page.evaluate(
+        () => document.activeElement?.closest('[role="menu"]') != null,
+      ),
+    );
+  /** A menu closes and hands the keyboard back to the post it was opened on. */
+  const backOnThePost = () =>
+    waitFor(
+      "the keyboard to be back on the post",
+      async () =>
+        (await menu.count()) === 0 && (await focusedPostId(page)) === target,
+    );
+
+  // J goes to the first post. C opens its category, and a digit chooses by
+  // the place in the list, which is the taxonomy's order.
+  await page.keyboard.press("j");
+  assert.equal(await focusedPostId(page), target);
+  await page.keyboard.press("c");
+  await menu.waitFor();
+  assert.equal(
+    await menu.getByRole("menuitemradio", { checked: true }).textContent(),
+    `${digitOf(TAXONOMY.categories, "web-dev")}${categoryLabel("web-dev")}`,
+  );
+  await menuHasTheKeyboard();
+  await page.keyboard.press(digitOf(TAXONOMY.categories, "design"));
+  await waitFor(
+    "the correction to be stored",
+    () => labelsOf(target).category === "design",
+  );
+  // The owner's word, kept apart from the classifier's answer.
+  assert.deepEqual(labelsOf(target).corrected, {
+    category: true,
+    format: false,
+    tags: false,
+  });
+  assert.equal(labelsOf(target).classification?.category, "web-dev");
+  await waitFor(
+    "the row to show it",
+    async () =>
+      (await control("category").getAttribute("data-value")) === "design",
+  );
+  await backOnThePost();
+  // The counts beside the filters follow, and the list keeps its place and
+  // the post, which the chosen filter no longer matches.
+  await waitFor(
+    "the counts to follow",
+    async () =>
+      (await countBeside(filterLink(page, categoryLabel("web-dev")))) ===
+      howMany({ category: "web-dev" }),
+  );
+  assert.equal(await focusedPostId(page), target);
+
+  // R is the format.
+  await page.keyboard.press("r");
+  await menuHasTheKeyboard();
+  await page.keyboard.press(digitOf(TAXONOMY.formats, "showcase"));
+  await waitFor(
+    "the format to be stored",
+    () => labelsOf(target).format === "showcase",
+  );
+  await backOnThePost();
+
+  // T is the tags: a field to find one in, by its name or another way of
+  // writing it, and Enter puts it on or takes it off.
+  const shownTags = () => post.locator("[data-labels] a").allTextContents();
+  /** Finds a tag in the open list and switches it, then waits for the row to show the app's answer. */
+  const switchTag = async (text: string, expected: string[]) => {
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.type(text);
+    await page.keyboard.press("Enter");
+    await waitFor(
+      `the row to show ${expected.join(" ")}`,
+      async () => (await shownTags()).join(" ") === expected.join(" "),
+    );
+  };
+  await page.keyboard.press("t");
+  await waitFor("the tag field to take the keyboard", () =>
+    page.evaluate(() => document.activeElement?.tagName === "INPUT"),
+  );
+  assert.equal(
+    await page.evaluate(
+      () => (document.activeElement as HTMLInputElement).value,
+    ),
+    "",
+    "the key that opened the field was not typed into it",
+  );
+  await switchTag("secur", ["#nextjs", "#react", "#security"]);
+  // By another way of writing it.
+  await switchTag("reklam", ["#ads", "#nextjs", "#react", "#security"]);
+  // One the classifier gave is taken off, and stays off whatever it says.
+  await switchTag("react", ["#ads", "#nextjs", "#security"]);
+  assert.deepEqual(labelsOf(target).tags, ["ads", "nextjs", "security"]);
+  assert.deepEqual(labelsOf(target).classification?.tags, ["nextjs", "react"]);
+  assert.equal(labelsOf(target).corrected.tags, true);
+  // Put back, it is the classifier's again.
+  await switchTag("react", ["#ads", "#nextjs", "#react", "#security"]);
+  assert.deepEqual(labelsOf(target).tags, [
+    "ads",
+    "nextjs",
+    "react",
+    "security",
+  ]);
+  await page.keyboard.press("Escape");
+  // The keyboard is back on the post, and J moves on from it.
+  await backOnThePost();
+  await page.keyboard.press("j");
+  assert.equal(inOrder[0], target);
+  assert.equal(await focusedPostId(page), inOrder[1]);
+
+  // By pointer: the category says the owner set it, and hands it back.
+  await control("category").click();
+  await menu.waitFor();
+  await menu
+    .getByRole("menuitem", {
+      name: `Use the classifier’s: ${categoryLabel("web-dev")}`,
+    })
+    .click();
+  await waitFor(
+    "the category to be the classifier's again",
+    () =>
+      labelsOf(target).category === "web-dev" &&
+      !labelsOf(target).corrected.category,
+  );
+
+  // All of it is in the library, not in the page: a reload shows the same.
+  await page.reload();
+  await page.getByTestId("result-count").waitFor();
+  await listIsLive(page);
+  assert.equal(await control("category").getAttribute("data-value"), "web-dev");
+  assert.equal(await control("category").getAttribute("data-corrected"), null);
+  assert.equal(await control("format").getAttribute("data-value"), "showcase");
+  assert.equal(await control("format").getAttribute("data-corrected"), "");
+  assert.deepEqual(await post.locator("[data-labels] a").allTextContents(), [
+    "#ads",
+    "#nextjs",
+    "#react",
+    "#security",
+  ]);
+
+  // Every change went to the one route, on this app, and nothing was asked
+  // of any other host.
+  assert.ok(writes.length >= 7);
+  assert.deepEqual(unique(writes), ["POST /api/owner/correct"]);
+  assert.deepEqual(fakeX.seen.slice(mark), []);
+  await page.close();
+});
+
+test("only the app's own page changes the library: another site's page, a rebound domain and a program without a browser's word are refused, and what a program that writes its own headers can do is said", {
+  timeout: TEST_TIMEOUT_MS,
+}, async () => {
+  const filed = seedLabels();
+  const from = seedLibrary();
+  const target = filed[2];
+  const path = "/api/owner/correct";
+  const body = JSON.stringify({ postId: target, category: "life" });
+  const standing = () =>
+    JSON.stringify([
+      labelsOf(target),
+      getVocabulary(from),
+      listTagProposals(from),
+    ]);
+  const before = standing();
+  assert.equal(labelsOf(target).category, "design");
+
+  const attack = (page: Page) =>
+    page.evaluate(
+      async ([url, body]) => {
+        const attempt = async (init: RequestInit) => {
+          try {
+            const response = await fetch(url, {
+              method: "POST",
+              body,
+              ...init,
+            });
+            return `${response.type} ${response.status}`;
+          } catch {
+            return "blocked";
+          }
+        };
+        return {
+          // "Simple" requests, sent without asking first.
+          plain: await attempt({
+            mode: "no-cors",
+            headers: { "content-type": "text/plain" },
+          }),
+          form: await attempt({
+            mode: "no-cors",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+          }),
+          // As the app's own page sends it: the browser asks leave first.
+          json: await attempt({
+            headers: { "content-type": "application/json" },
+          }),
+        };
+      },
+      [`${APP_ORIGIN}${path}`, body] as const,
+    );
+  const refused = { plain: "blocked", form: "blocked", json: "blocked" };
+
+  // A page on a public site, as x.com is, and one on a site Chrome lets
+  // through to this computer. Neither changes anything, and neither is
+  // shown an answer.
+  assert.deepEqual(await attack(xPage), refused);
+  const otherSite = await context.newPage();
+  await otherSite.goto("https://other-site.example/");
+  assert.deepEqual(await attack(otherSite), refused);
+  await otherSite.close();
+  assert.equal(standing(), before);
+
+  // A domain re-pointed at this computer. The browser takes its page and
+  // the app for one origin, so nothing stops the request on the way, and it
+  // says "same-origin" of itself. The app is asked for under the wrong name
+  // and refuses: to change anything, and to show anything.
+  const rebound = await context.newPage();
+  const landing = await rebound.goto(`${REBOUND_ORIGIN}/`);
+  assert.equal(landing?.status(), 403);
+  assert.equal(new URL(rebound.url()).origin, REBOUND_ORIGIN);
+  const fromRebound = await rebound.evaluate(async (body) => {
+    const write = await fetch("/api/owner/correct", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    const read = await fetch("/api/library");
+    const page = await fetch("/tags");
+    return {
+      write: [write.type, write.status],
+      read: read.status,
+      page: page.status,
+    };
+  }, body);
+  await rebound.close();
+  assert.deepEqual(fromRebound, {
+    write: ["basic", 403],
+    read: 403,
+    page: 403,
+  });
+  assert.equal(standing(), before);
+
+  // A program on this computer, not a browser. Without the headers a browser
+  // writes it is refused; so is the extension, whose door is another.
+  const asPage = {
+    origin: APP_ORIGIN,
+    "sec-fetch-site": "same-origin",
+    "content-type": "application/json",
+  };
+  const attempts = {
+    "nothing a browser would say": await postToApp(path, body, {
+      "content-type": "application/json",
+    }),
+    "the app's origin, and no word on where it came from": await postToApp(
+      path,
+      body,
+      { origin: APP_ORIGIN, "content-type": "application/json" },
+    ),
+    "another site's origin": await postToApp(path, body, {
+      ...asPage,
+      origin: "https://evil.example",
+    }),
+    "a cross-site mark": await postToApp(path, body, {
+      ...asPage,
+      "sec-fetch-site": "cross-site",
+    }),
+    "another name for this computer": await postToApp(path, body, {
+      ...asPage,
+      host: "evil.example:47130",
+      origin: "http://evil.example:47130",
+    }),
+    "a form's content type": await postToApp(path, body, {
+      ...asPage,
+      "content-type": "text/plain",
+    }),
+    "the extension's signature": await postToApp(path, body, {
+      origin: EXTENSION_ORIGIN,
+      ...(await signedHeaders(token, path, body)),
+    }),
+  };
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(attempts).map(([name, { status }]) => [name, status]),
+    ),
+    {
+      "nothing a browser would say": 403,
+      "the app's origin, and no word on where it came from": 403,
+      "another site's origin": 403,
+      "a cross-site mark": 403,
+      "another name for this computer": 403,
+      "a form's content type": 415,
+      "the extension's signature": 403,
+    },
+  );
+  assert.equal(standing(), before);
+  // And the page's request does not open the extension's door.
+  const captured = await postToApp(INGEST_PATH, "{}", asPage);
+  assert.equal(captured.status, 403);
+
+  // What is not defended, stated as a test: a program on this computer can
+  // write every header a browser would, and is then let in. It can already
+  // read every page of the app. What it can change this way is what a
+  // bookmark is filed under and the vocabulary; a capture still needs the
+  // token, and nothing here deletes a bookmark.
+  const forged = await postToApp(path, body, asPage);
+  assert.equal(forged.status, 200);
+  assert.equal(labelsOf(target).category, "life");
+  const undone = await postToApp(
+    path,
+    JSON.stringify({ postId: target, category: null }),
+    asPage,
+  );
+  assert.equal(undone.status, 200);
+  assert.equal(standing(), before);
+});
+
+test("the classifier's proposals are decided on the Tags page: the posts behind one, a new tag, another way of writing a tag, and no tag at all", {
+  timeout: TEST_TIMEOUT_MS,
+}, async () => {
+  const filed = seedLabels();
+  const from = seedLibrary();
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const writes = watchWrites(page);
+  await page.goto(`${APP_ORIGIN}/tags`);
+  const proposal = (name: string) => page.locator(`[data-proposal="${name}"]`);
+  const said = (text: string | RegExp) =>
+    page.getByText(text).first().waitFor();
+  const listedHere = () =>
+    page
+      .locator("[data-proposal]")
+      .evaluateAll((items) =>
+        items.map((item) => item.getAttribute("data-proposal") ?? ""),
+      );
+  /** The proposals core lists at a threshold, by the name of each group. */
+  const proposed = (minBookmarks: number) => {
+    const { proposals, total, belowThreshold } = listTagProposals(from, {
+      minBookmarks,
+    });
+    return {
+      names: proposals.map(({ proposal }) => proposal),
+      total,
+      belowThreshold,
+    };
+  };
+
+  // The list opens on what was proposed for two bookmarks or more, in core's
+  // groups, and counts the rest. An earlier test left a proposal of its own
+  // in the library, so what is expected is read from core.
+  const usual = proposed(2);
+  assert.ok(usual.names.includes("server-actions"));
+  assert.ok(usual.belowThreshold >= 2);
+  assert.deepEqual(await listedHere(), usual.names);
+  assert.equal(
+    await page.getByTestId("proposal-count").textContent(),
+    `${usual.total} proposed for 2 bookmarks or more. Show the ${usual.belowThreshold} proposed for fewer`,
+  );
+  // The page says plainly that the app does not tag by itself, and what
+  // then asks about the bookmarks that mention a new tag.
+  assert.match(
+    (await page.getByTestId("tags-app-tagging").textContent()) ?? "",
+    /The app’s own tagging is off, so bookmarks that only mention a new tag wait for pnpm tag --new-tags\./,
+  );
+
+  // The posts behind a proposal are a filter of the library.
+  const behind = proposal("server-actions").getByRole("link", {
+    name: "Proposed for 2 bookmarks",
+  });
+  assert.equal(await behind.getAttribute("href"), "/?proposed=server-actions");
+  const posts = await openLibrary("/?proposed=server-actions");
+  assert.deepEqual(unique(await everyPost(posts)), unique(filed.slice(0, 2)));
+  assert.deepEqual(
+    await posts
+      .getByRole("link", { name: /^Remove filter: / })
+      .allTextContents(),
+    ["Remove filter: Proposed tag: server-actions"],
+  );
+  await posts.close();
+
+  // The other spelling in its group is core's guess. It is offered unticked;
+  // ticked, it is decided on together with the name.
+  const other = proposal("server-actions").getByRole("checkbox");
+  assert.equal(await other.getAttribute("aria-checked"), "false");
+  await other.click();
+  assert.equal(await other.getAttribute("aria-checked"), "true");
+  await proposal("server-actions")
+    .getByRole("button", { name: "Accept as a new tag" })
+    .click();
+  await said("“server-actions” is a tag now. 3 bookmarks have it now.");
+  assert.equal(resolveTag(from, "server-actions"), "server-actions");
+  assert.equal(resolveTag(from, "server-action"), "server-actions");
+  for (const postId of filed.slice(0, 3)) {
+    assert.ok(labelsOf(postId).tags.includes("server-actions"), postId);
+  }
+  await proposal("server-actions").waitFor({ state: "detached" });
+  assert.match(
+    (await page.locator('[data-tag="server-actions"]').textContent()) ?? "",
+    /also server-action.*3 bookmarks/,
+  );
+
+  // The rest of this test's were each proposed once.
+  await page
+    .getByRole("link", { name: /^Show the [0-9]+ proposed for fewer$/ })
+    .click();
+  await page.waitForURL((url) => url.searchParams.get("least") === "1");
+  await proposal("prisma-orm").waitFor();
+  assert.deepEqual(await listedHere(), proposed(1).names);
+
+  // Another way of writing a tag there is, chosen from the vocabulary.
+  await pickTag(
+    page,
+    proposal("prisma-orm").getByText("Alias of a tag"),
+    "self-h",
+  );
+  await said(
+    "“prisma-orm” is another way of writing “self-hosting” now. 1 bookmark got the tag.",
+  );
+  assert.equal(resolveTag(from, "prisma-orm"), "self-hosting");
+  assert.ok(labelsOf(filed[1]).tags.includes("self-hosting"));
+
+  // No tag at all. It does not come back, so it takes a second press.
+  const waiting = proposed(1).total;
+  const dismiss = proposal("htmx").getByRole("button", { name: /^Dismiss/ });
+  await dismiss.click();
+  assert.equal(await dismiss.textContent(), "Dismiss for good?");
+  assert.equal(proposed(1).total, waiting, "one press dismisses nothing");
+  await dismiss.click();
+  await said(/^Dismissed\. It was proposed for 1 bookmark/);
+  assert.equal(proposed(1).total, waiting - 1);
+  assert.equal(resolveTag(from, "htmx"), undefined);
+  await proposal("htmx").waitFor({ state: "detached" });
+  assert.deepEqual(await listedHere(), proposed(1).names);
+
+  assert.deepEqual(unique(writes), [
+    "POST /api/owner/accept-proposal",
+    "POST /api/owner/dismiss-proposals",
+  ]);
+  await page.close();
+});
+
+test("the vocabulary is kept on the Tags page: a tag is added, renamed, given another name, merged, retired and restored, and its bookmarks go with it", {
+  timeout: TEST_TIMEOUT_MS,
+}, async () => {
+  const filed = seedLabels();
+  const from = seedLibrary();
+  const tagged = filed[4];
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`${APP_ORIGIN}/tags`);
+  const row = (tag: string) => page.locator(`[data-tag="${tag}"]`);
+  const editor = (tag: string) => page.locator(`[data-tag-editor="${tag}"]`);
+  const edit = async (tag: string) => {
+    await row(tag).getByRole("button", { name: /^Edit/ }).click();
+    await editor(tag).waitFor();
+    return editor(tag);
+  };
+  const said = (text: string | RegExp) =>
+    page.getByText(text).first().waitFor();
+  const names = () => listTags(from).map(({ tag }) => tag);
+
+  // Two new tags. A name is folded to the form tags are written in.
+  for (const [typed, tag] of [
+    ["E2E One", "e2e-one"],
+    ["e2e-two", "e2e-two"],
+  ] as const) {
+    await page.getByLabel("Add a tag").fill(typed);
+    await page.getByRole("button", { name: "Add tag" }).click();
+    await said(`“${tag}” is a tag now.`);
+    await row(tag).waitFor();
+  }
+  // What cannot be a tag is refused, and says why.
+  await page.getByLabel("Add a tag").fill("no tag!");
+  await page.getByRole("button", { name: "Add tag" }).click();
+  await said("Nothing was changed");
+  await said(/cannot be a tag\. A tag is lowercase letters and digits/);
+  assert.ok(!names().includes("no-tag!"));
+
+  // One of them is on a bookmark, put there by the owner.
+  correctBookmark(from, tagged ?? "", { addTags: ["e2e-one"] });
+  await page.reload();
+  assert.match((await row("e2e-one").textContent()) ?? "", /1 bookmark/);
+
+  // Renamed, the bookmark has it under the new name and the old one finds it.
+  await (await edit("e2e-one")).getByLabel("Name").fill("e2e-uno");
+  await editor("e2e-one").getByRole("button", { name: "Rename" }).click();
+  await said(
+    "“e2e-one” is “e2e-uno” now, on 1 bookmark. The old name still finds it.",
+  );
+  assert.ok(labelsOf(tagged).tags.includes("e2e-uno"));
+  assert.equal(resolveTag(from, "e2e-one"), "e2e-uno");
+  await row("e2e-uno").waitFor();
+
+  // Another way of writing it, added and taken back.
+  const uno = await edit("e2e-uno");
+  await uno
+    .getByRole("textbox", { name: "Another way of writing e2e-uno" })
+    .fill("Uno");
+  await uno.getByRole("button", { name: "Add", exact: true }).click();
+  await said("“Uno” is another way of writing “e2e-uno” now.");
+  assert.equal(resolveTag(from, "uno"), "e2e-uno");
+  await uno
+    .getByRole("button", {
+      name: "Remove uno as another way of writing e2e-uno",
+    })
+    .click();
+  await said(/^“uno” no longer leads to “e2e-uno”/);
+  assert.equal(resolveTag(from, "uno"), undefined);
+
+  // Merging cannot be undone, so it asks first, and can be called off.
+  const merge = async () => {
+    await pickTag(page, uno.getByText("Choose the tag to keep"), "e2e-two");
+    const question = page.getByRole("alertdialog");
+    await question.waitFor();
+    assert.match(
+      (await question.textContent()) ?? "",
+      /Merge “e2e-uno” into “e2e-two”\?.*The 1 bookmark that has “e2e-uno”.*This cannot be undone\./,
+    );
+    return question;
+  };
+  await (await merge()).getByRole("button", { name: "Keep both" }).click();
+  await page.getByRole("alertdialog").waitFor({ state: "detached" });
+  assert.ok(names().includes("e2e-uno"), "called off, nothing was merged");
+  await (await merge())
+    .getByRole("button", { name: "Merge", exact: true })
+    .click();
+  await said(/^“e2e-uno” is merged into “e2e-two”\. 1 bookmark had it/);
+  assert.ok(!names().includes("e2e-uno"));
+  assert.ok(labelsOf(tagged).tags.includes("e2e-two"));
+  assert.equal(resolveTag(from, "e2e-uno"), "e2e-two");
+
+  // Retired, it is on no bookmark; restored, it is on the ones it had.
+  await (await edit("e2e-two"))
+    .getByRole("button", { name: "Retire this tag" })
+    .click();
+  await said(/^“e2e-two” is retired\. 1 bookmark no longer shows it\./);
+  assert.ok(!labelsOf(tagged).tags.includes("e2e-two"));
+  await row("e2e-two").waitFor({ state: "detached" });
+  await page.getByText("1 retired tag").click();
+  const retired = page.locator('[data-retired-tag="e2e-two"]');
+  assert.match(
+    (await retired.textContent()) ?? "",
+    /1 bookmark would have it back/,
+  );
+  await retired.getByRole("button", { name: "Restore" }).click();
+  await said("“e2e-two” is a tag again. 1 bookmark has it back.");
+  assert.ok(labelsOf(tagged).tags.includes("e2e-two"));
+  await row("e2e-two").waitFor();
+
+  // A tag was added, more than once, and the app asked for a pass each
+  // time. No pass and no click here ran the classifier or spent anything.
+  assert.deepEqual(listTaggingRuns(from), []);
+  assert.equal(summariseTagging(from).spentUsd, 0);
+  await page.close();
+});
+
+test("the review queue lists what is under other, each reason apart, and what has an unclear format, and is gone through with the keyboard", {
+  timeout: TEST_TIMEOUT_MS,
+}, async () => {
+  seedLabels();
+  const from = seedLibrary();
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const countIn = async (queue: string) =>
+    Number(await page.getByTestId(`review-count-${queue}`).textContent());
+  const core = () => {
+    const summary = summariseMatches(from);
+    const other =
+      summary.categories.find(({ category }) => category === OTHER_CATEGORY)
+        ?.bookmarks ?? 0;
+    return {
+      little: summary.tooLittleText,
+      unfit: other - summary.tooLittleText,
+      unclear:
+        summary.formats.find(({ format }) => format === UNCLEAR_FORMAT)
+          ?.bookmarks ?? 0,
+    };
+  };
+  const counts = async () => ({
+    little: await countIn("little"),
+    unfit: await countIn("unfit"),
+    unclear: await countIn("unclear"),
+  });
+  const little = { category: OTHER_CATEGORY, tooLittleText: true };
+  /** A queue is the library's own list: read once its rows are drawn. */
+  const queueShown = async () => {
+    await page.locator("[data-post]").first().waitFor();
+    await listIsSettled(page);
+  };
+  const menuHasTheKeyboard = () =>
+    waitFor("the menu to take the keyboard", () =>
+      page.evaluate(
+        () => document.activeElement?.closest('[role="menu"]') != null,
+      ),
+    );
+
+  // With no queue named it opens on the first with anything in it, and puts
+  // that into the address, so the queue does not change under the reader.
+  await page.goto(`${APP_ORIGIN}/review`);
+  await page.waitForURL((url) => url.searchParams.get("queue") === "little");
+  await queueShown();
+
+  // Three queues, counted as core counts them, the two reasons apart.
+  const before = core();
+  assert.ok(before.little >= 1 && before.unfit >= 1 && before.unclear >= 2);
+  assert.deepEqual(await counts(), before);
+  const queues = page.getByRole("navigation", { name: "What to review" });
+  assert.match(
+    (await queues.locator('[aria-current="page"]').textContent()) ?? "",
+    /^Too little text/,
+  );
+  const waiting = listed(little);
+  assert.deepEqual(await everyPost(page), waiting);
+
+  // J to the post, C and a digit to file it. It stays where it is, filed,
+  // and the queue's count goes down.
+  const [first] = waiting;
+  await page.keyboard.press("j");
+  assert.equal(await focusedPostId(page), first);
+  await page.keyboard.press("c");
+  await menuHasTheKeyboard();
+  await page.keyboard.press(digitOf(TAXONOMY.categories, "tools"));
+  await waitFor(
+    "the post to be filed",
+    () => labelsOf(first).category === "tools",
+  );
+  assert.equal(labelsOf(first).tooLittleText, false);
+  await waitFor(
+    "the queue to count one fewer",
+    async () => (await countIn("little")) === before.little - 1,
+  );
+  assert.equal(new URL(page.url()).searchParams.get("queue"), "little");
+  assert.deepEqual(await everyPost(page), waiting);
+
+  // The other reason is a queue of its own.
+  await queues.getByRole("link", { name: /^No category fits/ }).click();
+  await page.waitForURL((url) => url.searchParams.get("queue") === "unfit");
+  await queueShown();
+  assert.deepEqual(
+    await everyPost(page),
+    listed({ category: OTHER_CATEGORY, tooLittleText: false }),
+  );
+
+  // An unclear format is set with R.
+  await queues
+    .getByRole("link", { name: new RegExp(`^${formatLabel(UNCLEAR_FORMAT)}`) })
+    .click();
+  await page.waitForURL((url) => url.searchParams.get("queue") === "unclear");
+  await queueShown();
+  const unclear = listed({ format: UNCLEAR_FORMAT });
+  assert.deepEqual(await everyPost(page), unclear);
+  await page.keyboard.press("j");
+  const formatless = await focusedPostId(page);
+  assert.equal(formatless, unclear[0]);
+  await page.keyboard.press("r");
+  await menuHasTheKeyboard();
+  await page.keyboard.press(digitOf(TAXONOMY.formats, "guide"));
+  await waitFor(
+    "the format to be stored",
+    () => labelsOf(formatless ?? "").format === "guide",
+  );
+  await waitFor(
+    "the queue to count one fewer",
+    async () => (await countIn("unclear")) === before.unclear - 1,
+  );
+  assert.deepEqual(await counts(), core());
+
+  // A queue with nothing left says so. What is still in the first one is
+  // filed here through core, as the owner's corrections.
+  for (const postId of listed(little)) {
+    correctBookmark(from, postId, { category: "tools" });
+  }
+  await page.goto(`${APP_ORIGIN}/review?queue=little`);
+  assert.match(
+    (await page.getByTestId("nothing-to-review").textContent()) ?? "",
+    /Nothing here/,
+  );
+  await page.close();
+});
+
+test("a search that matched a post by its author or by a picture's description shows where", {
+  timeout: TEST_TIMEOUT_MS,
+}, async () => {
+  const bookmarks = libraryBookmarks();
+  const lower = (texts: string[]) => texts.map((text) => text.toLowerCase());
+
+  // By the author's handle: marked in the post's heading.
+  const [byAuthor] = bookmarks;
+  assert.ok(byAuthor);
+  const page = await openLibrary(
+    `/?q=${encodeURIComponent(`@${byAuthor.authorHandle}`)}`,
+  );
+  const post = await findPost(page, byAuthor.postId);
+  assert.ok(
+    lower(await post.locator("h3 mark").allTextContents()).includes(
+      byAuthor.authorHandle.toLowerCase(),
+    ),
+  );
+
+  // By a word of a picture's description: marked in the description, which
+  // is shown under the picture's place. (That a word found there alone is
+  // marked there is shown on a made-up post, in `post-view.test.ts`: the
+  // fixtures' descriptions use only words their posts use too.)
+  const described = bookmarks.flatMap((bookmark) =>
+    bookmark.media.flatMap((media) => {
+      const [word] = (media.altText ?? "").match(/\p{L}{4,}/gu) ?? [];
+      return word === undefined ? [] : [{ bookmark, word }];
+    }),
+  );
+  const [picture] = described;
+  assert.ok(picture, "a fixture post has a described picture");
+  await page.goto(`${APP_ORIGIN}/?q=${encodeURIComponent(picture.word)}`);
+  await listIsLive(page);
+  const pictured = await findPost(page, picture.bookmark.postId);
+  assert.ok(
+    lower(
+      await pictured
+        .locator("p", { hasText: "Description:" })
+        .locator("mark")
+        .allTextContents(),
+    ).includes(picture.word.toLowerCase()),
+  );
+  await page.close();
+});
+
+test("with every bookmark classified nothing is offered as unclassified, and the status page counts what was done by hand", {
+  timeout: TEST_TIMEOUT_MS,
+}, async () => {
+  seedLabels();
+  const from = seedLibrary();
+  // Every bookmark the classifier has no answer for, those removed on X
+  // among them, is given one, through core.
+  for (;;) {
+    // Filed under no category: once classified, a bookmark leaves this list.
+    const { bookmarks: waiting } = listBookmarks(from, {
+      includeRemoved: true,
+      classified: false,
+      limit: MAX_PAGE_SIZE,
+    });
+    if (waiting.length === 0) break;
+    for (const { postId } of waiting) {
+      recordClassification(from, {
+        postId,
+        category: "life",
+        format: "discussion",
+        tags: [],
+        tooLittleText: false,
+        instructionsVersion: 1,
+        model: "a-model",
+      });
+    }
+  }
+  const standing = summariseTagging(from);
+  assert.equal(standing.unclassified, 0);
+
+  const page = await openLibrary("/");
+  assert.equal(await filterLink(page, "Not classified yet").count(), 0);
+  assert.equal(
+    await page
+      .getByRole("navigation", { name: "Library" })
+      .getByText("Not classified yet")
+      .count(),
+    0,
+  );
+  assert.equal(
+    await page.locator('[data-edit="category"][data-value=""]').count(),
+    0,
+  );
+  await page.goto(`${APP_ORIGIN}/?cat=none`);
+  await page.getByTestId("no-results").waitFor();
+
+  await page.goto(`${APP_ORIGIN}/status`);
+  const card = page.locator("#tagging");
+  const shown = async (name: string) =>
+    (await card.getByTestId(`tagging-${name}`).textContent()) ?? "";
+  assert.equal(
+    await shown("classified"),
+    `${standing.classified} of ${standing.bookmarks}`,
+  );
+  assert.equal(await shown("unclassified"), "0");
+  assert.ok(standing.corrected >= 2);
+  assert.equal(await shown("corrected"), String(standing.corrected));
+  assert.equal(
+    await shown("little-text"),
+    String(standing.other.tooLittleText),
+  );
+  assert.match(
+    await shown("no-fit"),
+    new RegExp(`^${standing.other.noneOfTheAbove}\\b`),
+  );
+  assert.equal(await shown("unclear"), String(standing.unclearFormat));
+  assert.equal(await shown("proposals"), String(standing.proposals));
+  assert.match((await shown("app")) ?? "", /^Off\./);
+  // Everything above was done through core and by hand. No screen started a
+  // run of the classifier, and nothing was spent.
+  assert.equal(await shown("spent"), "$0.00");
+  assert.equal(await shown("last-run"), "none yet");
+  assert.deepEqual(listTaggingRuns(from), []);
   await page.close();
 });

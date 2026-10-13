@@ -95,10 +95,13 @@ test("the address names a week by any of its days, and anything else is the week
 
 test("the links into the library carry core's own filters by core's own names", () => {
   expect(LIBRARY_LINKS.fittedNoCategory("other")).toBe(
-    "/?category=other&tooLittleText=false",
+    "/?cat=other&text=enough",
   );
-  expect(LIBRARY_LINKS.proposedTag("drizzle")).toBe("/?proposedTag=drizzle");
-  expect(LIBRARY_LINKS.proposedTag("a b&c")).toBe("/?proposedTag=a+b%26c");
+  expect(LIBRARY_LINKS.proposedTag("drizzle")).toBe("/?proposed=drizzle");
+  expect(LIBRARY_LINKS.proposedTag("a b&c")).toBe("/?proposed=a+b%26c");
+  expect(LIBRARY_LINKS.category("web-dev")).toBe("/?cat=web-dev");
+  expect(LIBRARY_LINKS.format("guide")).toBe("/?fmt=guide");
+  expect(LIBRARY_LINKS.tag("nextjs")).toBe("/?tag=nextjs");
 });
 
 test("a week's page holds its counts, its posts newest first, and the weeks either side", () => {

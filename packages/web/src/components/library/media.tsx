@@ -258,7 +258,9 @@ export function MediaStrip({
   const durations = media
     .map((item) => item.duration)
     .filter((duration) => duration !== null);
-  const described = media.filter((item) => item.alt !== null);
+  const described = media
+    .map((item) => item.altLine)
+    .filter((line) => line !== null);
   const tiles = (
     <span className="flex shrink-0 gap-1">
       {media.slice(0, 4).map((item, index) => (
@@ -306,14 +308,21 @@ export function MediaStrip({
           {caption}
         </div>
       )}
-      {described.map((item, index) => (
+      {described.map((line, index) => (
         <p
           // biome-ignore lint/suspicious/noArrayIndexKey: as above.
           key={index}
           className="text-[0.8125rem] text-muted-foreground leading-normal"
         >
           <span className="font-medium">Description: </span>
-          {item.alt}
+          {line.map((piece, at) =>
+            piece.kind === "mark" ? (
+              // biome-ignore lint/suspicious/noArrayIndexKey: pieces of one string, in order.
+              <mark key={at}>{piece.text}</mark>
+            ) : (
+              piece.text
+            ),
+          )}
         </p>
       ))}
     </div>

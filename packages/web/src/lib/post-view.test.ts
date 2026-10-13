@@ -1,7 +1,10 @@
 import { type Bookmark, isXOwnedHost, MAX_PAGE_SIZE } from "@x-bookmarks/core";
 import { expect, test } from "vitest";
 import { type LibraryBookmark, listLibrary } from "../server/library.ts";
-import { openFixtureLibrary } from "../server/library-testing.ts";
+import {
+  openFiledLibrary,
+  openFixtureLibrary,
+} from "../server/library-testing.ts";
 import {
   describeMedia,
   initialsOf,
@@ -86,6 +89,7 @@ test("media is described in whole phrases", () => {
     kinds.map((kind) => ({
       kind,
       alt: null,
+      altLine: null,
       duration: null,
       aspectRatio: null,
       imageSrc: null,
@@ -334,4 +338,126 @@ test("long text is offered shortened, with its length in words", () => {
     expect([...item.bookmark.text].length).toBeGreaterThan(280);
     expect(view.wordCount).toMatch(/^[0-9,]+$/);
   }
+});
+
+test("a search that matched the author, a media description or a card's site is marked there too", () => {
+  const [first] = fixtureViews();
+  if (first === undefined) throw new Error("The fixtures hold no bookmark.");
+  const view = postView(
+    {
+      ...first.item.bookmark,
+      authorName: "Işıl Çelik",
+      authorHandle: "lighthouse_keeper",
+      text: "Nothing here says why this was found.",
+      links: [],
+      media: [
+        {
+          type: "photo",
+          imageUrl: "https://example.com/not-loaded.jpg",
+          videoUrl: null,
+          altText: "A lighthouse at dusk",
+          width: null,
+          height: null,
+          durationMs: null,
+        },
+      ],
+      card: {
+        url: "https://example.com/a",
+        title: "A headline",
+        description: null,
+        domain: "harbour.example",
+        imageUrl: null,
+        name: "summary",
+      },
+      article: null,
+      quoted: null,
+    },
+    ["isil", "lighthouse", "harbour"],
+  );
+
+  expect(markedIn(view.text)).toEqual([]);
+  expect(view.author.nameLine).toEqual([
+    { kind: "mark", text: "Işıl" },
+    { kind: "text", text: " Çelik" },
+  ]);
+  expect(markedIn(view.author.handleLine)).toEqual(["lighthouse"]);
+  expect(markedIn(view.media[0]?.altLine ?? null)).toEqual(["lighthouse"]);
+  expect(view.media[0]?.alt).toBe("A lighthouse at dusk");
+  expect(markedIn(view.card?.domain ?? null)).toEqual(["harbour"]);
+});
+
+test("without a search nothing of the author or the media is marked, and a quoted author is marked like the post's own", () => {
+  for (const { view } of fixtureViews()) {
+    expect(markedIn(view.author.nameLine)).toEqual([]);
+    expect(view.author.nameLine.map((piece) => piece.text).join("")).toBe(
+      view.author.name,
+    );
+    expect(view.author.handleLine.map((piece) => piece.text).join("")).toBe(
+      view.author.handle,
+    );
+    for (const media of view.media) {
+      expect(markedIn(media.altLine)).toEqual([]);
+      expect(media.altLine === null).toBe(media.alt === null);
+    }
+  }
+  const quoting = fixtureViews().find(
+    ({ item }) => item.bookmark.quoted?.available === true,
+  );
+  if (quoting === undefined || !quoting.item.bookmark.quoted?.available) {
+    throw new Error("The fixtures hold no quoted post.");
+  }
+  const handle = quoting.item.bookmark.quoted.authorHandle;
+  const quoted = postView(quoting.item.bookmark, [handle.toLowerCase()]).quoted;
+  expect(
+    quoted?.available === true ? markedIn(quoted.author.handleLine) : [],
+  ).toEqual([handle]);
+});
+
+test("a view says what its bookmark is filed under, by id, and what the classifier said where the owner said otherwise", () => {
+  const { bookmarks, classified, filedByOwner } = openFiledLibrary();
+  const labelsOf = (bookmark: Bookmark | undefined) => {
+    if (bookmark === undefined) throw new Error("A bookmark is missing.");
+    return postView(bookmark).labels;
+  };
+
+  expect(labelsOf(classified[0])).toEqual({
+    category: "web-dev",
+    format: "guide",
+    tags: ["nextjs", "react"],
+    tooLittleText: false,
+    corrected: { category: false, format: false, tags: false },
+    classifier: {
+      category: "web-dev",
+      format: "guide",
+      tags: ["nextjs", "react"],
+    },
+  });
+  expect(labelsOf(classified[3])).toMatchObject({
+    category: "other",
+    tooLittleText: true,
+  });
+  expect(labelsOf(classified[4])).toMatchObject({
+    category: "other",
+    tooLittleText: false,
+  });
+  expect(labelsOf(filedByOwner)).toEqual({
+    category: "life",
+    format: null,
+    tags: [],
+    tooLittleText: false,
+    corrected: { category: true, format: false, tags: false },
+    classifier: null,
+  });
+  expect(labelsOf(bookmarks.at(-1))).toEqual({
+    category: null,
+    format: null,
+    tags: [],
+    tooLittleText: false,
+    corrected: { category: false, format: false, tags: false },
+    classifier: null,
+  });
+  // A tag the classifier only proposed is on no bookmark, and in no view.
+  expect(JSON.stringify(labelsOf(classified[0]))).not.toContain(
+    "server-actions",
+  );
 });

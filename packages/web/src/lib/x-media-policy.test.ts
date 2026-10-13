@@ -181,13 +181,24 @@ test("no part of the app touches an avatar's address", () => {
   expect(filesWith(/avatarUrl|profile_images/i)).toEqual([]);
 });
 
-test("the browser asks this app for data in one place, by a relative address", () => {
+test("the browser asks this app for data in one place and sends it a change in one other, each by a relative address", () => {
   const ASKS =
     /\bfetc[h]\(|XMLHttpReques[t]|WebSocke[t]|EventSourc[e]|sendBeaco[n]/;
 
-  expect(filesWith(ASKS)).toEqual(["src/components/library/load-more.ts"]);
+  expect(filesWith(ASKS).toSorted()).toEqual([
+    "src/components/library/load-more.ts",
+    "src/lib/owner-write.ts",
+  ]);
   const loadMore = sources.find(({ file }) => file.endsWith("load-more.ts"));
   expect(loadMore?.source).toMatch(/fetc[h]\(`\/api\/library\?/);
+  const ownerWrite = sources.find(({ file }) =>
+    file.endsWith("lib/owner-write.ts"),
+  );
+  expect(ownerWrite?.source).toMatch(/fetc[h]\(`\/api\/owner\/\$\{action\}`/);
+  // Neither names a host: a relative address can only lead to this app.
+  for (const source of [loadMore?.source, ownerWrite?.source]) {
+    expect(source).not.toMatch(/https?:\/\//);
+  }
 });
 
 test("the server reads media addresses and never requests one", () => {

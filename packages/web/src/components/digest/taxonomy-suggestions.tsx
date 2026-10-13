@@ -116,7 +116,15 @@ export function TaxonomySuggestions({
                     "{n} subjects have been proposed as tags for two bookmarks or more.",
                   )}{" "}
               <span className="text-muted-foreground">
-                A proposal is on no bookmark until you accept it.
+                A proposal is on no bookmark until you accept it, on the{" "}
+                <Link
+                  href="/tags"
+                  prefetch={false}
+                  className="rounded-sm text-foreground underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  Tags page
+                </Link>
+                .
                 {proposedOnce > 0
                   ? ` ${counted(proposedOnce, "{n} more was proposed for one bookmark only.", "{n} more were proposed for one bookmark only.")}`
                   : ""}
