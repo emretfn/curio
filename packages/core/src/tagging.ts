@@ -23,6 +23,17 @@ import { vocabularyVersion } from "./vocabulary.ts";
 
 type Connection = ReturnType<typeof connectionOf>;
 
+/**
+ * The current version of the classifier's instructions: of everything
+ * `packages/tagger` tells the model and asks it with. The instructions are
+ * the tagger's, and its tests hold their fingerprint; the number is kept
+ * here, beside the taxonomy's version, because whether a classification is
+ * outdated is a question every reader of the library asks, and they must
+ * all get the same answer without each having to be told the version.
+ * Raise it when the tagger's instructions change.
+ */
+export const INSTRUCTIONS_VERSION = 2;
+
 /** The most bookmarks one call to `listClassificationCandidates` returns, and so the most one run classifies. */
 export const MAX_CLASSIFICATION_CANDIDATES = 5000;
 
@@ -44,8 +55,8 @@ export interface CandidateOptions {
    * some tag joined, mention or none.
    */
   which: "unclassified" | "outdated" | "new-tags" | "behind-vocabulary";
-  /** The current version of the classifier's instructions. */
-  instructionsVersion: number;
+  /** The version of the classifier's instructions to count against: `INSTRUCTIONS_VERSION` unless said. */
+  instructionsVersion?: number | undefined;
   /** 1 to `MAX_CLASSIFICATION_CANDIDATES`, which is the default. */
   limit?: number | undefined;
   /**
@@ -161,7 +172,9 @@ export function listClassificationCandidates(
   }
   const parameters: Record<string, string | number> = {
     taxonomyVersion: TAXONOMY.version,
-    instructionsVersion: versionOf(options.instructionsVersion),
+    instructionsVersion: versionOf(
+      options.instructionsVersion ?? INSTRUCTIONS_VERSION,
+    ),
     attempts: MAX_CLASSIFICATION_ATTEMPTS,
   };
   const db = connectionOf(store);
@@ -603,7 +616,7 @@ export interface TaggingSummary {
   unclassified: number;
   /** Of the unclassified, those it was asked about and gave nothing usable for. */
   failed: number;
-  /** Classified under an older taxonomy, or under older instructions when `instructionsVersion` was given. */
+  /** Classified under an older taxonomy or under older instructions than the current ones. */
   outdated: number;
   /**
    * Classified before some tag joined the vocabulary, and so never asked
@@ -644,9 +657,11 @@ export interface TaggingSummary {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Totals for the classifier's report and for a status screen.
- * `instructionsVersion` is the classifier's current one; without it a
- * bookmark is outdated only by its taxonomy.
+ * Totals for the classifier's report and for a status screen. A bookmark is
+ * outdated when it was classified under an older taxonomy or under older
+ * instructions than the current ones, `TAXONOMY.version` and
+ * `INSTRUCTIONS_VERSION`; `instructionsVersion` is for a caller that has to
+ * count against another version.
  */
 export function summariseTagging(
   store: Store,
@@ -690,10 +705,9 @@ export function summariseTagging(
     )
     .get({
       taxonomyVersion: TAXONOMY.version,
-      instructionsVersion:
-        options.instructionsVersion === undefined
-          ? 0
-          : versionOf(options.instructionsVersion),
+      instructionsVersion: versionOf(
+        options.instructionsVersion ?? INSTRUCTIONS_VERSION,
+      ),
     });
   if (counts === undefined) {
     throw new Error("An aggregate query returned no row.");

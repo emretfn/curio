@@ -1,7 +1,17 @@
 /**
  * Tagging of new bookmarks without anyone running anything. The work is the
- * tagger's (`tagNewBookmarks` in `@x-bookmarks/tagger`); this module decides
- * when the app asks for it, and remembers what came of it.
+ * tagger's (`tagNewBookmarks` in `@x-bookmarks/tagger/automatic`); this
+ * module decides when the app asks for it, and remembers what came of it.
+ *
+ * It is off unless the owner has turned it on, because a pass spends their
+ * money with no one watching. The switch is a line of the `.env` file at
+ * the repo's root, which the owner writes by hand and the tagger reads at
+ * each pass. This module holds no switch and offers none: no argument of
+ * `scheduleTagging`, no route and no page can make a pass send. Asked for
+ * a pass with tagging off, the tagger counts what is waiting, answers
+ * `off` with how to turn it on, and the app has still loaded nothing that
+ * can reach another host. The timers below run all the same, so the
+ * owner's edit takes effect at the next pass with no restart.
  *
  * A pass is asked for three ways: shortly after the app starts, for what
  * arrived while it was not running or could not be tagged; a minute after
@@ -20,14 +30,15 @@
  * The tagger reads it from the `.env` file at the repo's root when a pass
  * runs. That file is not one Next loads: Next reads `.env` files from its
  * own project directory, `packages/web`, which holds none. So the key is
- * in no variable of this process's environment, before a pass or after. The bookmarks themselves are stored and
- * complete before a pass begins, and stay so whether or not it succeeds.
+ * in no variable of this process's environment, before a pass or after.
+ * The bookmarks themselves are stored and complete before a pass begins,
+ * and stay so whether or not it succeeds.
  *
  * What a pass may do by itself, and what it leaves to the owner (the first
  * run, a backlog, a re-tagging), is decided in the tagger.
  */
 import type { Store } from "@x-bookmarks/core";
-import type { AutomaticPass } from "@x-bookmarks/tagger";
+import type { AppTagging, AutomaticPass } from "@x-bookmarks/tagger/automatic";
 import { sharedStore } from "./data.ts";
 
 const MINUTE_MS = 60 * 1000;
@@ -66,17 +77,30 @@ export interface TaggingAttempt {
 export type Pass = (store: Store) => Promise<AutomaticPass>;
 
 /**
- * The tagger, loaded by Node when the first pass runs and not before, and
- * not bundled: it imports core, of which this process must hold one copy
- * (see `core.ts`), and until a pass runs the app has loaded nothing that
- * can reach another host.
+ * The tagger's entry for the app, loaded by Node when it is first needed
+ * and not bundled: it imports core, of which this process must hold one
+ * copy (see `core.ts`). The entry is the pass and the owner's setting and
+ * no more. The client that sends is loaded by the pass itself, and only by
+ * one the owner has allowed that has something to send.
  */
+const automatic = () =>
+  import(/* turbopackIgnore: true */ "@x-bookmarks/tagger/automatic");
+
 const tagger: Pass = async (store) => {
-  const { tagNewBookmarks } = await import(
-    /* turbopackIgnore: true */ "@x-bookmarks/tagger"
-  );
+  const { tagNewBookmarks } = await automatic();
   return tagNewBookmarks(store);
 };
+
+/**
+ * Whether the owner has let the app tag by itself, as the tagger reads it
+ * from the `.env` file now, with a message fit to show: how to turn it on
+ * or off, and which commands do the same by hand. Read-only: nothing here
+ * can change it.
+ */
+export async function appTagging(): Promise<AppTagging> {
+  const { appTagging: read } = await automatic();
+  return read();
+}
 
 interface Shared {
   lastAttempt?: TaggingAttempt;

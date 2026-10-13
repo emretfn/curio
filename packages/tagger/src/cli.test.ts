@@ -158,6 +158,8 @@ test("--check passes a safe .env without a request, and says that is all it show
     `X_BOOKMARKS_ANTHROPIC_API_KEY is set in ${lib.envFile}, and the file is readable by you alone.`,
   );
   expect(checked.stdout).toMatch(/No request was made/);
+  // A key in place does not turn the app's own tagging on, and the check says so.
+  expect(checked.stdout).toMatch(/Tagging by the app is off/);
   expect(checked.output).not.toContain(FAKE_KEY);
 });
 
@@ -171,6 +173,16 @@ test("--status and --proposals read the library and change nothing", () => {
 
   expect(status.status).toBe(0);
   expect(status.stdout).toMatch(/Not classified yet\s+4/);
+  expect(status.stdout).toContain(
+    `Tagging by the app is off: by itself the app sends nothing to the API and spends nothing. To turn it on, add the line X_BOOKMARKS_APP_TAGGING=on to ${lib.envFile}`,
+  );
+  writeKey(lib.directory, { appTagging: true });
+  const turnedOn = tag(lib, "--status");
+  expect(turnedOn.stdout).toMatch(/Tagging by the app is on/);
+  expect(turnedOn.stdout).toContain(
+    `remove X_BOOKMARKS_APP_TAGGING=on from ${lib.envFile}`,
+  );
+  expect(turnedOn.output).not.toContain(FAKE_KEY);
   expect(proposals.stdout).toMatch(
     /No tag outside the vocabulary has been proposed for 2 bookmarks or more/,
   );

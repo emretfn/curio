@@ -104,6 +104,7 @@ export {
   finishTaggingRun,
   getOpenTaggingRun,
   getTaggingRun,
+  INSTRUCTIONS_VERSION,
   listClassificationCandidates,
   listTaggingRuns,
   MAX_CLASSIFICATION_ATTEMPTS,

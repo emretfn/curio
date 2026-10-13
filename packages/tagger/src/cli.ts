@@ -16,7 +16,9 @@ import {
 } from "@x-bookmarks/core";
 import { createClaude } from "./anthropic.ts";
 import {
+  APP_TAGGING_VARIABLE,
   ApiKeyUnavailable,
+  appTagging,
   dataDirectory,
   envFilePath,
   KEY_VARIABLE,
@@ -58,12 +60,18 @@ With no option it classifies every bookmark that has not been classified yet.
                      or as one batch, which has no rate limit.
   --wait <minutes>   How long to wait for a batch before leaving it to the next run (default ${DEFAULT_BATCH_WAIT_MS / 60_000}).
   --retry-failed     Also bookmarks the classifier has already failed on twice.
-  --check            Check that the API key is in place in .env and the file is safe. No request.
-  --status           Say how the tagging of the library stands. No request.
+  --check            Check that the API key is in place in .env and the file is safe, and
+                     say whether the app may tag by itself. No request.
+  --status           Say how the tagging of the library stands, and whether the app
+                     may tag by itself. No request.
   --proposals [n]    List the tags the classifier suggested beyond the vocabulary that
                      were suggested for n bookmarks or more (default 2), alike ones together.
   --tags             List the vocabulary: every tag, how many bookmarks have it, its other names.
   --help             This text.
+
+Every run of this command is yours to start, and none needs the app. The app
+classifies by itself only if .env holds the line ${APP_TAGGING_VARIABLE}=on,
+which is yours to write: without it the app sends nothing and spends nothing.
 `;
 
 function fail(message: string): never {
@@ -164,7 +172,7 @@ function apiKeyOrRefusal(): string {
 if (chosen.check) {
   apiKeyOrRefusal();
   console.log(
-    `\n${KEY_VARIABLE} is set in ${envFile}, and the file is readable by you alone.\nNo request was made, so this says nothing about whether the API accepts the key.\n`,
+    `\n${KEY_VARIABLE} is set in ${envFile}, and the file is readable by you alone.\nNo request was made, so this says nothing about whether the API accepts the key.\n\n${appTagging(envFile).message}\n`,
   );
   process.exit(0);
 }
@@ -220,6 +228,7 @@ try {
         getVocabulary(store),
       ),
     );
+    console.log(`${appTagging(envFile).message}\n`);
   } else if (chosen.tags) {
     const tags = listTags(store, { includeRetired: true });
     console.log(

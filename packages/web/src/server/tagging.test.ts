@@ -1,10 +1,11 @@
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { openTempStore, tempDatabasePath } from "@x-bookmarks/core/testing";
-import type { AutomaticPass } from "@x-bookmarks/tagger";
+import type { AutomaticPass } from "@x-bookmarks/tagger/automatic";
 import { afterEach, expect, test, vi } from "vitest";
 import {
   AFTER_CAPTURE_MS,
+  appTagging,
   type Pass,
   scheduleTagging,
   startTagging,
@@ -168,13 +169,15 @@ test("a warning about the standard key variable is remembered and logged, though
 test("the key is in no variable of the app's environment: not before a pass, and not after one that read it", async () => {
   const { store, data } = setUp();
   const key = "sk-ant-api03-FAKE0not0a0real0key0000000000000000";
-  writeFileSync(join(data, ".env"), `X_BOOKMARKS_ANTHROPIC_API_KEY=${key}\n`, {
-    mode: 0o600,
-  });
+  writeFileSync(
+    join(data, ".env"),
+    `X_BOOKMARKS_ANTHROPIC_API_KEY=${key}\nX_BOOKMARKS_APP_TAGGING=on\n`,
+    { mode: 0o600 },
+  );
   const before = { ...process.env };
 
   // The real tagger, which finds the key's file beside the moved data
-  // directory, reads it, and has an empty library to do nothing with.
+  // directory, is allowed by it, and has an empty library to do nothing with.
   const attempt = await tagNow(undefined, () => store);
 
   expect(attempt.status).toBe("nothing-to-do");
@@ -254,9 +257,17 @@ test("as the app starts a first pass follows shortly, and then one an hour; star
   expect(pass).toHaveBeenCalledTimes(2);
 });
 
-test("with no key in place, the real pass leaves a library alone and reaches for nothing", async () => {
-  const { store } = setUp();
+test("unless the owner has turned it on, the real pass is off: a state and not a problem, nothing logged, nothing reached for", async () => {
+  const { store, data } = setUp();
+  // A key in place, as after the owner's first run: the key alone is not
+  // the owner's word that the app may spend.
+  writeFileSync(
+    join(data, ".env"),
+    "X_BOOKMARKS_ANTHROPIC_API_KEY=sk-ant-api03-FAKE0not0a0real0key0000000000000000\n",
+    { mode: 0o600 },
+  );
   const requested = vi.spyOn(globalThis, "fetch");
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
   // The tagger itself, loaded as the app loads it.
   const attempt = await tagNow(
@@ -266,9 +277,40 @@ test("with no key in place, the real pass leaves a library alone and reaches for
   );
 
   expect(attempt).toMatchObject({
-    status: "nothing-to-do",
+    status: "off",
     waiting: 0,
+    classified: 0,
+    costUsd: 0,
+    warning: null,
     problem: false,
   });
+  expect(attempt.message).toMatch(/^Tagging by the app is off/);
+  expect(attempt.message).toContain("X_BOOKMARKS_APP_TAGGING=on");
+  expect(attempt.message).toContain("pnpm tag");
+  expect(taggingStatus().lastAttempt?.status).toBe("off");
   expect(requested).not.toHaveBeenCalled();
+  expect(logged).not.toHaveBeenCalled();
+});
+
+test("the owner's setting is read from the file beside the data, as it stands at each asking", async () => {
+  const { data } = setUp();
+
+  const byDefault = await appTagging();
+  writeFileSync(join(data, ".env"), "X_BOOKMARKS_APP_TAGGING=on\n", {
+    mode: 0o600,
+  });
+  const turnedOn = await appTagging();
+
+  expect(byDefault.on).toBe(false);
+  expect(turnedOn.on).toBe(true);
+  expect(turnedOn.message).toContain(join(data, ".env"));
+});
+
+test("asking for a pass carries nothing that could turn the app's tagging on", () => {
+  // The whole of what a caller can say: when. A screen that asks for a pass
+  // after the owner accepts a tag gets one that answers `off`.
+  expect(scheduleTagging.length).toBe(0);
+  expect(scheduleTagging.toString()).toMatch(
+    /^function scheduleTagging\(delayMs = AFTER_CAPTURE_MS, pass = tagger\)/,
+  );
 });

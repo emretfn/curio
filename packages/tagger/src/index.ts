@@ -1,6 +1,9 @@
 export { CLAUDE_API_ORIGIN, type Claude, createClaude } from "./anthropic.ts";
 export {
+  APP_TAGGING_VARIABLE,
   ApiKeyUnavailable,
+  type AppTagging,
+  appTagging,
   dataDirectory,
   ENV_FILE,
   envFilePath,
