@@ -8,11 +8,22 @@ export {
 } from "./backup.ts";
 export {
   type Bookmark,
+  type BookmarkLabels,
   type BookmarkSighting,
+  type Classification,
   estimateBookmarkedAt,
   getBookmark,
   upsertBookmark,
 } from "./bookmarks.ts";
+export { visibleText } from "./hidden-text.ts";
+export {
+  type Correction,
+  correctBookmark,
+  type NewClassification,
+  type NewTagsAnswer,
+  recordClassification,
+  recordNewTags,
+} from "./labels.ts";
 export {
   type BookmarkFilter,
   type BookmarkList,
@@ -60,6 +71,13 @@ export type {
   QuotedPost,
 } from "./post.ts";
 export {
+  listTagProposals,
+  MAX_TAG_PROPOSALS,
+  type TagProposal,
+  type TagProposalList,
+  type TagProposalOptions,
+} from "./proposals.ts";
+export {
   CAPTURE_SOURCES,
   type CaptureSource,
   getRawCapture,
@@ -79,6 +97,63 @@ export {
   type SearchMatch,
 } from "./search-text.ts";
 export { type OpenStoreOptions, openStore, type Store } from "./store.ts";
+export {
+  type CandidateList,
+  type CandidateOptions,
+  type ClassificationFailureReason,
+  finishTaggingRun,
+  getOpenTaggingRun,
+  getTaggingRun,
+  listClassificationCandidates,
+  listTaggingRuns,
+  MAX_CLASSIFICATION_ATTEMPTS,
+  MAX_CLASSIFICATION_CANDIDATES,
+  type NewTaggingRun,
+  recordClassificationFailure,
+  recordTaggingProgress,
+  startTaggingRun,
+  summariseTagging,
+  TAGGING_RUN_STALE_MS,
+  type TaggingProgress,
+  type TaggingRun,
+  TaggingRunInProgress,
+  TaggingRunNotOpen,
+  type TaggingRunOutcome,
+  type TaggingSummary,
+  type TokenUsage,
+} from "./tagging.ts";
+export {
+  type CategoryId,
+  type FormatId,
+  foldTagText,
+  isCategoryId,
+  isFormatId,
+  MAX_TAG_LENGTH,
+  OTHER_CATEGORY,
+  TAG_SHAPE,
+  TAXONOMY,
+  type Taxonomy,
+  type TaxonomyEntry,
+  taxonomyFingerprint,
+  UNCLEAR_FORMAT,
+} from "./taxonomy.ts";
+export {
+  acceptTagProposal,
+  addTag,
+  addTagAlias,
+  dismissTagProposal,
+  getVocabulary,
+  listTags,
+  mergeTags,
+  removeTagAlias,
+  renameTag,
+  resolveTag,
+  retireTag,
+  settleTagProposals,
+  type TagInfo,
+  type Vocabulary,
+  type VocabularyChange,
+} from "./vocabulary.ts";
 export {
   assertNotXOwnedUrl,
   isXOwnedHost,

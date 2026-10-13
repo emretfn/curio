@@ -201,6 +201,78 @@ test("when parsing itself breaks, the capture is already stored and the extensio
   logged.mockRestore();
 });
 
+test("a stored capture asks for the tagging of its bookmarks once, after it is parsed, and waits for nothing", async () => {
+  const store = openTempStore();
+  const seen: number[] = [];
+  const afterStored = vi.fn(() => {
+    seen.push(summariseParsing(store).captures.parsed);
+  });
+  const body = JSON.stringify({
+    ...capture,
+    payload: readFixture("x-web-client/Bookmarks/2026-10-12-text-posts.json"),
+  });
+  const deliver = async () =>
+    handleIngest(await extensionRequest("/api/ingest", body), {
+      store,
+      token: TOKEN,
+      now: () => now,
+      afterStored,
+    });
+
+  const first = await deliver();
+  const again = await deliver();
+
+  expect(first.status).toBe(201);
+  // Asked for once the capture was parsed, and not again for the redelivery.
+  expect(seen).toEqual([1]);
+  expect(again.status).toBe(200);
+  expect(afterStored).toHaveBeenCalledOnce();
+});
+
+test("a capture that is refused asks for no tagging", async () => {
+  const store = openTempStore();
+  const afterStored = vi.fn();
+
+  const response = await handleIngest(
+    await extensionRequest(
+      "/api/ingest",
+      JSON.stringify(capture),
+      {},
+      OTHER_TOKEN,
+    ),
+    { store, token: TOKEN, now: () => now, afterStored },
+  );
+
+  expect(response.status).toBe(401);
+  expect(afterStored).not.toHaveBeenCalled();
+});
+
+test("when asking for the tagging breaks, the capture is stored and the extension is told so", async () => {
+  const store = openTempStore();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+  const response = await handleIngest(
+    await extensionRequest("/api/ingest", JSON.stringify(capture)),
+    {
+      store,
+      token: TOKEN,
+      now: () => now,
+      afterStored: () => {
+        throw new Error("the tagger is broken");
+      },
+    },
+  );
+
+  expect(response.status).toBe(201);
+  expect(await isProven(response)).toBe(true);
+  expect(await response.json()).toEqual({ status: "stored", id: capture.id });
+  expect(summariseRawCaptures(store).count).toBe(1);
+  expect(JSON.stringify(logged.mock.calls)).not.toContain(
+    "the tagger is broken",
+  );
+  logged.mockRestore();
+});
+
 test("the next delivery parses whatever an earlier one left unparsed, oldest first", async () => {
   const { store, send } = setUp();
   // Stored and never parsed: by an older version of the app, or one that

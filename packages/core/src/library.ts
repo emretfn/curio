@@ -6,6 +6,12 @@
  * include them, and takes "when" to mean the bookmark time, `bookmarkedAt`.
  * One bookmark by its id is `getBookmark`.
  *
+ * A bookmark's category, format and tags are filters like any other, and
+ * are counted like any other. What a bookmark is filed under is the owner's
+ * word where there is one and the classifier's otherwise: `labels.ts` writes
+ * both, `taxonomy.ts` holds the categories and formats there are, and
+ * `vocabulary.ts` the tags.
+ *
  * `searchBookmarks` and `listBookmarks` return bookmarks; `summariseMatches`
  * counts what the same options match, for the numbers beside a screen's
  * filters; `summariseLibrary` counts the library as a whole; and
@@ -17,13 +23,19 @@ import {
   type Bookmark,
   type BookmarkRow,
   bookmarkFromRow,
+  CATEGORY,
+  FORMAT,
   FROM_BOOKMARKS,
   REMOVED_ON_X_AT,
   SELECT_BOOKMARK_COLUMNS,
+  TOO_LITTLE_TEXT,
   WITHHELD_ON_X_AT,
 } from "./bookmarks.ts";
+import { categoryOf, formatOf } from "./labels.ts";
 import { excerpt, parseSearchQuery, type SearchMatch } from "./search-text.ts";
 import { connectionOf, type Store } from "./store.ts";
+import { foldTagText, OTHER_CATEGORY } from "./taxonomy.ts";
+import { tagOf } from "./vocabulary.ts";
 
 /** Which bookmarks a query looks at. Every part is optional, and all given parts must hold. */
 export interface BookmarkFilter {
@@ -68,6 +80,40 @@ export interface BookmarkFilter {
    * no bookmark and is in no list of them: see `listWithheldPosts`.
    */
   onlyWithheld?: boolean | undefined;
+  /**
+   * Bookmarks filed under this category, by its id in `TAXONOMY`, such as
+   * `web-dev`. The owner's correction counts before the classifier's answer.
+   * An id the taxonomy does not hold is refused with a `RangeError`.
+   */
+  category?: string | undefined;
+  /** Bookmarks of this format, by its id in `TAXONOMY`, such as `guide`. */
+  format?: string | undefined;
+  /**
+   * Bookmarks that have every one of these tags. A tag may be written as
+   * one of its aliases, in any case, with or without accents: "reklam"
+   * finds `ads`. A text that is no tag of the vocabulary as it stands is
+   * refused with a `RangeError`.
+   */
+  tags?: readonly string[] | undefined;
+  /**
+   * Only bookmarks that are filed under a category, or only those that are
+   * not yet: neither classified nor filed by the owner.
+   */
+  classified?: boolean | undefined;
+  /**
+   * Only bookmarks filed under "other" because the classifier found the
+   * stored text too little to tell, or only the rest. With `category`
+   * "other" and this false, what is left is the other kind of "other": text
+   * enough, and no category that fits, which is what says a category is
+   * missing.
+   */
+  tooLittleText?: boolean | undefined;
+  /**
+   * Bookmarks for which the classifier proposed this tag, a tag the
+   * vocabulary does not hold. The proposal is on none of them as a tag;
+   * these are the bookmarks that would get it if it became one.
+   */
+  proposedTag?: string | undefined;
 }
 
 /**
@@ -176,7 +222,17 @@ const HAS = {
 /** Whether X now withholds the post of a row `b`, for the filter and for the count beside it. */
 const IS_WITHHELD = `(${WITHHELD_ON_X_AT} IS NOT NULL)`;
 
-function conditionsOf(filter: BookmarkFilter): {
+type Connection = ReturnType<typeof connectionOf>;
+
+/** Whether a row `b` has the tag bound to `name`, for the filter and for the counts beside it. */
+const hasTag = (name: string) => `EXISTS (
+    SELECT 1 FROM bookmark_effective_tags
+    WHERE post_id = b.post_id AND tag = ${name})`;
+
+function conditionsOf(
+  db: Connection,
+  filter: BookmarkFilter,
+): {
   conditions: string[];
   parameters: Parameters;
 } {
@@ -225,6 +281,35 @@ function conditionsOf(filter: BookmarkFilter): {
     conditions.push(`${REMOVED_ON_X_AT} IS NULL`);
   }
   if (filter.onlyWithheld === true) conditions.push(IS_WITHHELD);
+  if (filter.category !== undefined) {
+    conditions.push(`${CATEGORY} = @category`);
+    parameters.category = categoryOf(filter.category);
+  }
+  if (filter.format !== undefined) {
+    conditions.push(`${FORMAT} = @format`);
+    parameters.format = formatOf(filter.format);
+  }
+  // A tag given twice, or under two of its names, is one condition.
+  const tags = new Set((filter.tags ?? []).map((tag) => tagOf(db, tag)));
+  [...tags].forEach((tag, index) => {
+    conditions.push(hasTag(`@tag${index}`));
+    parameters[`tag${index}`] = tag;
+  });
+  if (filter.tooLittleText !== undefined) {
+    conditions.push(
+      filter.tooLittleText ? TOO_LITTLE_TEXT : `NOT ${TOO_LITTLE_TEXT}`,
+    );
+  }
+  if (filter.proposedTag !== undefined) {
+    conditions.push(`EXISTS (
+      SELECT 1 FROM json_each(cl.proposed_tags) WHERE value = @proposedTag)`);
+    parameters.proposedTag = foldTagText(filter.proposedTag);
+  }
+  if (filter.classified !== undefined) {
+    conditions.push(
+      `${CATEGORY} IS ${filter.classified ? "NOT NULL" : "NULL"}`,
+    );
+  }
   return { conditions, parameters };
 }
 
@@ -264,7 +349,7 @@ export function listBookmarks(
   options: ListOptions = {},
 ): BookmarkList {
   const db = connectionOf(store);
-  const { conditions, parameters } = conditionsOf(options);
+  const { conditions, parameters } = conditionsOf(db, options);
   const direction = options.order === "oldest" ? "ASC" : "DESC";
   const page = pageOf(options);
   const total = db
@@ -330,10 +415,10 @@ export function searchBookmarks(
       `excerptLength must be a whole number above zero; got ${excerptLength}.`,
     );
   }
-  const filter = conditionsOf(options);
+  const db = connectionOf(store);
+  const filter = conditionsOf(db, options);
   if (expression === null) return { total: 0, hits: [], terms };
 
-  const db = connectionOf(store);
   const conditions = [
     "bookmark_search MATCH @expression",
     ...filter.conditions,
@@ -401,20 +486,42 @@ export interface MatchSummary {
   long: number;
   /** How many of the matches X now withholds. See `Bookmark.withheldOnXAt`. */
   withheldOnX: number;
+  /**
+   * How many of the matches are filed under "other" for want of text. The
+   * rest of the matches under "other", whose number is in `categories`, had
+   * text enough and fitted no category.
+   */
+  tooLittleText: number;
   /** Most bookmarks first. `null` is where X named no language. */
   languages: { lang: string | null; bookmarks: number }[];
   /** Calendar years of the bookmark time, in this process's time zone, latest first. */
   years: { year: number; bookmarks: number }[];
   /** How many of what the rest of the options match were removed on X. */
   removedOnX: number;
+  /**
+   * By category id, most bookmarks first, with the options' own category
+   * set aside so that the others stay on offer. `null` is the bookmarks
+   * filed under none yet.
+   */
+  categories: { category: string | null; bookmarks: number }[];
+  /** By format id, likewise, with the options' own format set aside. */
+  formats: { format: string | null; bookmarks: number }[];
+  /**
+   * The tags among the matches, most bookmarks first: each count is what
+   * adding that tag to the options would leave.
+   */
+  tags: { tag: string; bookmarks: number }[];
 }
 
 /** The rows `options` match, as the tail of a query over `b`, or null when a search holds nothing to search for. */
-function matching(options: MatchOptions): {
+function matching(
+  db: Connection,
+  options: MatchOptions,
+): {
   from: string;
   parameters: Parameters;
 } | null {
-  const { conditions, parameters } = conditionsOf(options);
+  const { conditions, parameters } = conditionsOf(db, options);
   if (options.query === undefined) {
     return { from: `${FROM_BOOKMARKS} ${where(conditions)}`, parameters };
   }
@@ -437,27 +544,31 @@ export function summariseMatches(
   options: MatchOptions = {},
 ): MatchSummary {
   const db = connectionOf(store);
-  const all = matching(options);
-  const anyLanguage = matching({
+  const all = matching(db, options);
+  const anyLanguage = matching(db, {
     ...options,
     lang: undefined,
     langNot: undefined,
   });
-  const anyTime = matching({
+  const anyTime = matching(db, {
     ...options,
     bookmarkedSince: undefined,
     bookmarkedBefore: undefined,
   });
-  const removed = matching({
+  const removed = matching(db, {
     ...options,
     includeRemoved: undefined,
     onlyRemoved: true,
   });
+  const anyCategory = matching(db, { ...options, category: undefined });
+  const anyFormat = matching(db, { ...options, format: undefined });
   if (
     all === null ||
     anyLanguage === null ||
     anyTime === null ||
-    removed === null
+    removed === null ||
+    anyCategory === null ||
+    anyFormat === null
   ) {
     return {
       total: 0,
@@ -468,15 +579,30 @@ export function summariseMatches(
       withQuote: 0,
       long: 0,
       withheldOnX: 0,
+      tooLittleText: 0,
       languages: [],
       years: [],
       removedOnX: 0,
+      categories: [],
+      formats: [],
+      tags: [],
     };
   }
   const counts = db
     .prepare<
       Parameters,
-      Omit<MatchSummary, "languages" | "years" | "removedOnX">
+      Pick<
+        MatchSummary,
+        | "total"
+        | "withMedia"
+        | "withVideo"
+        | "withLinks"
+        | "withArticle"
+        | "withQuote"
+        | "long"
+        | "withheldOnX"
+        | "tooLittleText"
+      >
     >(
       `SELECT count(*) AS total,
               count(*) FILTER (WHERE ${HAS.media}) AS withMedia,
@@ -485,7 +611,8 @@ export function summariseMatches(
               count(*) FILTER (WHERE ${HAS.article}) AS withArticle,
               count(*) FILTER (WHERE ${HAS.quote}) AS withQuote,
               count(*) FILTER (WHERE ${HAS.long}) AS long,
-              count(*) FILTER (WHERE ${IS_WITHHELD}) AS withheldOnX
+              count(*) FILTER (WHERE ${IS_WITHHELD}) AS withheldOnX,
+              count(*) FILTER (WHERE ${TOO_LITTLE_TEXT}) AS tooLittleText
        ${all.from}`,
     )
     .get(all.parameters);
@@ -516,7 +643,40 @@ export function summariseMatches(
         .prepare<Parameters, number>(`SELECT count(*) ${removed.from}`)
         .pluck()
         .get(removed.parameters) ?? 0,
+    categories: db
+      .prepare<Parameters, { category: string | null; bookmarks: number }>(
+        `SELECT ${CATEGORY} AS category, count(*) AS bookmarks
+         ${anyCategory.from}
+         GROUP BY 1
+         ORDER BY bookmarks DESC, category`,
+      )
+      .all(anyCategory.parameters),
+    formats: db
+      .prepare<Parameters, { format: string | null; bookmarks: number }>(
+        `SELECT ${FORMAT} AS format, count(*) AS bookmarks
+         ${anyFormat.from}
+         GROUP BY 1
+         ORDER BY bookmarks DESC, format`,
+      )
+      .all(anyFormat.parameters),
+    tags: tagCounts(db, all),
   };
+}
+
+/** How many of the rows `matched` holds have each tag, most first. */
+function tagCounts(
+  db: Connection,
+  matched: { from: string; parameters: Parameters },
+): { tag: string; bookmarks: number }[] {
+  return db
+    .prepare<Parameters, { tag: string; bookmarks: number }>(
+      `SELECT e.tag AS tag, count(*) AS bookmarks
+       FROM bookmark_effective_tags e
+       WHERE e.post_id IN (SELECT b.post_id ${matched.from})
+       GROUP BY e.tag
+       ORDER BY bookmarks DESC, tag`,
+    )
+    .all(matched.parameters);
 }
 
 /**
@@ -620,6 +780,27 @@ export interface LibrarySummary {
   topAuthors: { handle: string; name: string; bookmarks: number }[];
   /** Every language X named, most bookmarks first. `null` is where X named none. */
   languages: { lang: string | null; bookmarks: number }[];
+  /** By category id, most bookmarks first. `null` is the bookmarks filed under none yet. */
+  categories: { category: string | null; bookmarks: number }[];
+  /** By format id, likewise. */
+  formats: { format: string | null; bookmarks: number }[];
+  /** Every tag in use, most bookmarks first. */
+  tags: { tag: string; bookmarks: number }[];
+  /**
+   * The bookmarks filed under "other", and why. `tooLittleText` is a fact
+   * about those bookmarks: a bare link, a few words beside a picture.
+   * `noneOfTheAbove` is a fact about the taxonomy: text enough, and no
+   * category that fits. When its share grows, a category is missing.
+   */
+  other: {
+    bookmarks: number;
+    tooLittleText: number;
+    noneOfTheAbove: number;
+    /** `bookmarks` as a share of the bookmarks filed under any category, from 0 to 1. Zero when none is filed. */
+    share: number;
+    /** `noneOfTheAbove` as a share of the same. */
+    noneOfTheAboveShare: number;
+  };
 }
 
 /**
@@ -668,6 +849,15 @@ export function summariseLibrary(
     )
     .pluck()
     .get();
+  const filed = db
+    .prepare<[], { filed: number; other: number; tooLittleText: number }>(
+      `SELECT count(${CATEGORY}) AS filed,
+              count(*) FILTER (WHERE ${CATEGORY} = '${OTHER_CATEGORY}') AS other,
+              count(*) FILTER (WHERE ${TOO_LITTLE_TEXT}) AS tooLittleText
+       ${current}`,
+    )
+    .get() ?? { filed: 0, other: 0, tooLittleText: 0 };
+  const share = (part: number) => (filed.filed === 0 ? 0 : part / filed.filed);
   return {
     bookmarks: totals.bookmarks,
     removedOnX: removedOnX ?? 0,
@@ -698,5 +888,29 @@ export function summariseLibrary(
          ORDER BY bookmarks DESC, lang`,
       )
       .all(),
+    categories: db
+      .prepare<[], { category: string | null; bookmarks: number }>(
+        `SELECT ${CATEGORY} AS category, count(*) AS bookmarks
+         ${current}
+         GROUP BY 1
+         ORDER BY bookmarks DESC, category`,
+      )
+      .all(),
+    formats: db
+      .prepare<[], { format: string | null; bookmarks: number }>(
+        `SELECT ${FORMAT} AS format, count(*) AS bookmarks
+         ${current}
+         GROUP BY 1
+         ORDER BY bookmarks DESC, format`,
+      )
+      .all(),
+    tags: tagCounts(db, { from: current, parameters: {} }),
+    other: {
+      bookmarks: filed.other,
+      tooLittleText: filed.tooLittleText,
+      noneOfTheAbove: filed.other - filed.tooLittleText,
+      share: share(filed.other),
+      noneOfTheAboveShare: share(filed.other - filed.tooLittleText),
+    },
   };
 }

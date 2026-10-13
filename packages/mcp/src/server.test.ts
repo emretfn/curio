@@ -76,12 +76,20 @@ test("of core it takes the functions that read, and no function that writes", ()
     "PostContent",
     "QuotedPost",
     "Store",
+    // The taxonomy is data: the ids, labels and definitions of the
+    // categories and formats, to describe the filters with and to set out
+    // in the overview.
+    "TAXONOMY",
     "excerpt",
     "getBookmark",
+    // Reads the tag vocabulary, which the user changes and the library holds.
+    "getVocabulary",
     "listBookmarks",
     "openStore",
     "searchBookmarks",
     "summariseLibrary",
+    // Drops characters that hide text from a reader. A function of text alone.
+    "visibleText",
   ]);
 });
 

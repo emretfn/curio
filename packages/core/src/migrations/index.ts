@@ -4,6 +4,8 @@ import { migration as captureKeyAndRequestBody } from "./0002-capture-key-and-re
 import { migration as parsedBookmarks } from "./0003-parsed-bookmarks.ts";
 import { migration as bookmarkMutations } from "./0004-bookmark-mutations.ts";
 import { migration as searchIndex } from "./0005-search-index.ts";
+import { migration as labels } from "./0006-labels.ts";
+import { migration as vocabulary } from "./0007-vocabulary.ts";
 
 /** Every migration, in the order it is applied. Append only. */
 export const migrations: readonly Migration[] = [
@@ -12,4 +14,6 @@ export const migrations: readonly Migration[] = [
   parsedBookmarks,
   bookmarkMutations,
   searchIndex,
+  labels,
+  vocabulary,
 ];

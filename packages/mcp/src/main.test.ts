@@ -9,11 +9,17 @@ import { dirname, join } from "node:path";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import {
+  acceptTagProposal,
+  correctBookmark,
+  getVocabulary,
   insertRawCapture,
   listBookmarks,
   openStore,
   parseCapture,
+  recordClassification,
+  retireTag,
   type Store,
+  TAXONOMY,
 } from "@x-bookmarks/core";
 import { readFixture, tempDatabasePath } from "@x-bookmarks/core/testing";
 import { expect, onTestFinished, test } from "vitest";
@@ -101,6 +107,9 @@ interface Row {
   bookmarked_at: string;
   full_text_length?: number;
   removed_on_x_at?: string;
+  category?: string;
+  format?: string;
+  tags?: string[];
 }
 
 interface Listing {
@@ -118,12 +127,32 @@ interface Overview {
   now: string;
   time_zone: string;
   library: Record<string, unknown>;
+  taxonomy: {
+    version: number;
+    not_classified_yet: number;
+    categories: {
+      id: string;
+      label: string;
+      holds: string;
+      bookmarks: number;
+    }[];
+    formats: { id: string; label: string; is: string; bookmarks: number }[];
+    tags: { tag: string; bookmarks: number }[];
+  };
   bookmarks: { most_bookmarked_authors: unknown[] };
 }
 
 interface Detail {
   notice: string;
-  bookmark: { id: string; text: string; bookmarked_at_basis: string };
+  bookmark: {
+    id: string;
+    text: string;
+    bookmarked_at_basis: string;
+    category?: string;
+    format?: string;
+    tags?: string[];
+    labels_set_by_user?: string[];
+  };
 }
 
 interface Called<Answer> {
@@ -303,6 +332,247 @@ test("a list is by bookmark time, takes a period, and leaves out a removed bookm
   ).toBe(newest.json.total);
 });
 
+/**
+ * Files six of the library's bookmarks, as the classifier and then the owner
+ * would: three under web development, two under design, one under other;
+ * and one of the web ones refiled under design by the owner.
+ */
+function fileSome(library: Library) {
+  const [a, b, c, d, e, f] = listBookmarks(library.store, {
+    order: "oldest",
+    limit: 6,
+  }).bookmarks.map(({ postId }) => postId);
+  if (!a || !b || !c || !d || !e || !f) throw new Error("Too few bookmarks.");
+  const file = (
+    postId: string,
+    category: string,
+    format: string,
+    tags: string[],
+  ) =>
+    recordClassification(library.store, {
+      postId,
+      category,
+      format,
+      tags,
+      tooLittleText: category === "other",
+      instructionsVersion: 1,
+      model: "a-model",
+    });
+  file(a, "web-dev", "guide", ["react", "nextjs"]);
+  file(b, "web-dev", "guide", ["react"]);
+  file(c, "web-dev", "launch", ["nextjs"]);
+  file(d, "design", "showcase", ["animation"]);
+  file(e, "design", "resource-list", []);
+  file(f, "other", "unclear", []);
+  correctBookmark(library.store, c, { category: "design", addTags: ["ads"] });
+  return { a, b, c, d, e, f };
+}
+
+test("the overview sets out the taxonomy, with what each part means and how many bookmarks it has", async () => {
+  const library = buildLibrary();
+  fileSome(library);
+  const total = listBookmarks(library.store).total;
+  const client = await connect(library.directory);
+
+  const { taxonomy } = (await call<Overview>(client, "library_overview")).json;
+
+  expect(taxonomy.version).toBe(TAXONOMY.version);
+  expect(taxonomy.not_classified_yet).toBe(total - 6);
+  expect(taxonomy.categories.map(({ id }) => id)).toEqual(
+    TAXONOMY.categories.map(({ id }) => id),
+  );
+  expect(taxonomy.categories.find(({ id }) => id === "design")).toEqual({
+    id: "design",
+    label: "Design & UI",
+    holds: TAXONOMY.categories.find(({ id }) => id === "design")?.definition,
+    // Two by the classifier and one the owner moved there.
+    bookmarks: 3,
+  });
+  expect(
+    taxonomy.categories.find(({ id }) => id === "web-dev")?.bookmarks,
+  ).toBe(2);
+  expect(taxonomy.categories.find(({ id }) => id === "life")?.bookmarks).toBe(
+    0,
+  );
+  expect(taxonomy.formats.find(({ id }) => id === "guide")).toMatchObject({
+    label: "Guide",
+    bookmarks: 2,
+  });
+  // Every tag of the vocabulary, most used first, unused ones at nought.
+  expect(taxonomy.tags).toHaveLength(getVocabulary(library.store).tags.length);
+  expect(taxonomy.tags.slice(0, 2)).toEqual([
+    { tag: "nextjs", bookmarks: 2 },
+    { tag: "react", bookmarks: 2 },
+  ]);
+  expect(taxonomy.tags.at(-1)?.bookmarks).toBe(0);
+});
+
+test("a list and a search are narrowed by category, format and tags, and their rows say what each bookmark is filed under", async () => {
+  const library = buildLibrary();
+  const { a, b, c, d } = fileSome(library);
+  const client = await connect(library.directory);
+  const listed = async (args: Record<string, unknown>) =>
+    (await call(client, "list_bookmarks", { order: "oldest", ...args })).json;
+
+  const web = await listed({ category: "web-dev" });
+
+  expect(web.bookmarks.map(({ id }) => id)).toEqual([a, b]);
+  expect(web.bookmarks[0]).toMatchObject({
+    category: "web-dev",
+    format: "guide",
+    tags: ["nextjs", "react"],
+  });
+  // The owner's correction is what a filter reads.
+  expect(
+    ids(
+      await call(client, "list_bookmarks", {
+        category: "design",
+        order: "oldest",
+      }),
+    ),
+  ).toContain(c);
+  expect(
+    (await listed({ category: "design", format: "showcase" })).bookmarks.map(
+      ({ id }) => id,
+    ),
+  ).toEqual([d]);
+  expect((await listed({ tags: ["react", "nextjs"] })).total).toBe(1);
+  // A tag by another of its names, in either language.
+  expect((await listed({ tags: ["Next.js"] })).total).toBe(2);
+  expect(
+    (await listed({ tags: ["reklam"] })).bookmarks.map(({ id }) => id),
+  ).toEqual([c]);
+  expect((await listed({ classified: true })).total).toBe(6);
+  expect((await listed({ classified: false })).total).toBe(
+    listBookmarks(library.store).total - 6,
+  );
+
+  const found = await call(client, "search_bookmarks", {
+    query: "lorem",
+    category: "web-dev",
+    limit: 50,
+  });
+  const everywhere = await call(client, "search_bookmarks", {
+    query: "lorem",
+    limit: 50,
+  });
+  expect(found.json.total).toBeLessThanOrEqual(2);
+  expect(ids(found).every((id) => [a, b].includes(id))).toBe(true);
+  expect(everywhere.json.total).toBeGreaterThan(found.json.total);
+  // An unclassified bookmark's row carries no labels at all.
+  const unfiled = (await listed({ classified: false, limit: 1 })).bookmarks[0];
+  expect(unfiled).not.toHaveProperty("category");
+  expect(unfiled).not.toHaveProperty("tags");
+});
+
+test("one bookmark in full says what it is filed under and which of that the user set", async () => {
+  const library = buildLibrary();
+  const { a, c } = fileSome(library);
+  const client = await connect(library.directory);
+
+  const corrected = (await call<Detail>(client, "get_bookmark", { id: c })).json
+    .bookmark;
+  const classified = (await call<Detail>(client, "get_bookmark", { id: a }))
+    .json.bookmark;
+
+  expect(corrected).toMatchObject({
+    category: "design",
+    format: "launch",
+    tags: ["ads", "nextjs"],
+    labels_set_by_user: ["category", "tags"],
+  });
+  expect(classified).toMatchObject({
+    category: "web-dev",
+    tags: ["nextjs", "react"],
+  });
+  expect(classified).not.toHaveProperty("labels_set_by_user");
+});
+
+test("a tag the vocabulary does not hold is answered with an error that names it; a category outside the list never reaches the library", async () => {
+  const library = buildLibrary();
+  fileSome(library);
+  const client = await connect(library.directory);
+
+  const unknownTag = await call(client, "list_bookmarks", {
+    tags: ["react", "rust"],
+  });
+
+  expect(unknownTag.isError).toBe(true);
+  expect(unknownTag.text).toMatch(/"rust" is not a tag of the vocabulary/);
+  for (const args of [
+    { category: "cooking" },
+    { format: "thread" },
+    { tags: "react" },
+  ]) {
+    const refused = await client
+      .callTool({ name: "list_bookmarks", arguments: args })
+      .then(
+        (answer) => answer.isError === true,
+        () => true,
+      );
+    expect(refused, JSON.stringify(args)).toBe(true);
+  }
+});
+
+test("the tools say which categories, formats and tags there are, so that a filter can be written without asking", async () => {
+  const library = buildLibrary();
+  const client = await connect(library.directory);
+
+  const { tools } = await client.listTools();
+
+  for (const name of ["search_bookmarks", "list_bookmarks"]) {
+    const schema = JSON.stringify(
+      tools.find((tool) => tool.name === name)?.inputSchema,
+    );
+    for (const { id } of [...TAXONOMY.categories, ...TAXONOMY.formats]) {
+      expect(schema, `${name} ${id}`).toContain(`"${id}"`);
+    }
+    for (const tag of getVocabulary(library.store).tags) {
+      expect(schema, `${name} ${tag}`).toContain(tag);
+    }
+  }
+  expect(client.getInstructions()).toMatch(/given by a classifier model/);
+});
+
+test("a tag the user added is in the overview, in the filter's description and on its bookmarks; a retired one is in none", async () => {
+  const library = buildLibrary();
+  const { a, b } = fileSome(library);
+  recordClassification(library.store, {
+    postId: b,
+    category: "web-dev",
+    format: "guide",
+    tags: ["react"],
+    proposedTags: ["drizzle"],
+    tooLittleText: false,
+    instructionsVersion: 1,
+    model: "a-model",
+  });
+  acceptTagProposal(library.store, "drizzle");
+  retireTag(library.store, "react");
+  const client = await connect(library.directory);
+
+  const { taxonomy } = (await call<Overview>(client, "library_overview")).json;
+  const { tools } = await client.listTools();
+  const described = JSON.stringify(
+    tools.find((tool) => tool.name === "list_bookmarks")?.inputSchema,
+  );
+  const tagged = await call(client, "list_bookmarks", { tags: ["drizzle"] });
+  const retired = await call(client, "list_bookmarks", { tags: ["react"] });
+
+  expect(taxonomy.tags).toContainEqual({ tag: "drizzle", bookmarks: 1 });
+  expect(taxonomy.tags.map(({ tag }) => tag)).not.toContain("react");
+  expect(described).toMatch(
+    /The tags when this session began: [^"]*\bdrizzle\b/,
+  );
+  expect(described).not.toMatch(/\breact\b(?!-)/);
+  expect(tagged.json.bookmarks).toMatchObject([{ id: b, tags: ["drizzle"] }]);
+  expect(retired.isError).toBe(true);
+  expect(retired.text).toMatch(/"react" is a tag that was retired/);
+  // And the bookmark that had the retired tag no longer shows it.
+  const detail = (await call<Detail>(client, "get_bookmark", { id: a })).json;
+  expect(detail.bookmark.tags).toEqual(["nextjs"]);
+});
+
 test("one bookmark is read in full by its id", async () => {
   const library = buildLibrary();
   const client = await connect(library.directory);
@@ -389,13 +659,20 @@ const digest = (path: string) =>
 
 test("a session of every tool leaves the database file byte for byte as it was", async () => {
   const library = buildLibrary();
+  fileSome(library);
   library.store.close();
   const before = digest(library.path);
   const client = await connect(library.directory);
 
   await call(client, "library_overview");
   await call(client, "search_bookmarks", { query: "lorem" });
+  await call(client, "search_bookmarks", { query: "lorem", tags: ["react"] });
   await call(client, "list_bookmarks");
+  await call(client, "list_bookmarks", {
+    category: "design",
+    format: "showcase",
+  });
+  await call(client, "list_bookmarks", { tags: ["no-such-tag"] });
   await call(client, "get_bookmark", { id: library.post.id });
   await client.close();
 

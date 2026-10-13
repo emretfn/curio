@@ -18,7 +18,13 @@
 import assert from "node:assert/strict";
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, request as httpRequest } from "node:http";
 import {
   type AddressInfo,
@@ -38,6 +44,7 @@ import {
   listBookmarks,
   listParseIssues,
   listSnapshots,
+  listTaggingRuns,
   MAX_PAGE_SIZE,
   openStore,
   type PostContent,
@@ -47,6 +54,7 @@ import {
   searchBookmarks,
   summariseParsing,
   summariseRawCaptures,
+  summariseTagging,
 } from "@x-bookmarks/core";
 import {
   APP_HOST,
@@ -2720,4 +2728,71 @@ test("with the setting on, media loads for the posts on screen and for no others
   await setting.click();
   assert.equal(await setting.getAttribute("aria-checked"), "false");
   await page.close();
+});
+
+test("with no API key the new bookmarks wait untagged, the app says why, and nothing was sent or spent", {
+  timeout: TEST_TIMEOUT_MS,
+}, async () => {
+  // The app asks for a pass as it starts and a minute after a capture is
+  // stored. By now it has made one over the bookmarks this run captured;
+  // the wait is for a run that got here sooner.
+  interface Status {
+    lastAttempt: {
+      status: string;
+      message: string;
+      waiting: number;
+      classified: number;
+      costUsd: number;
+      problem: boolean;
+    } | null;
+    library: { classified: number; unclassified: number; spentUsd: number };
+  }
+  const status = await waitFor<Status>(
+    "a tagging pass over the stored bookmarks",
+    async () => {
+      const answer = await requestToApp("GET", "/api/tagging");
+      if (answer.status !== 200) return false;
+      const read = JSON.parse(answer.body) as Status;
+      return read.lastAttempt?.status === "no-key" ? read : false;
+    },
+    100_000,
+  );
+  store ??= openStore(join(dataDirectory, "bookmarks.db"));
+  const standing = summariseTagging(store);
+
+  // Tagging is off, which is a state and not a failure, and it cost the
+  // captures nothing: every test above ran with it in this state.
+  assert.equal(status.lastAttempt?.problem, false);
+  assert.match(
+    status.lastAttempt?.message ?? "",
+    /X_BOOKMARKS_ANTHROPIC_API_KEY/,
+  );
+  assert.ok((status.lastAttempt?.waiting ?? 0) >= 5);
+  assert.equal(status.lastAttempt?.classified, 0);
+  assert.equal(status.lastAttempt?.costUsd, 0);
+  assert.deepEqual(status.library, {
+    ...status.library,
+    classified: 0,
+    unclassified: standing.bookmarks,
+    spentUsd: 0,
+  });
+  assert.ok(standing.bookmarks >= 5);
+  assert.deepEqual(listTaggingRuns(store), []);
+  // With its data directory moved, the app looks for the key's .env file
+  // there, never at the repo's root, where the owner's is; and it makes none.
+  assert.equal(
+    existsSync(join(dataDirectory, ".env")),
+    false,
+    "the app does not create a key file",
+  );
+  assert.ok(
+    status.lastAttempt?.message.includes(join(dataDirectory, ".env")),
+    "the app looked for the key beside this run's data, not in the repo",
+  );
+
+  // Another site's page cannot read the status either.
+  const fromElsewhere = await requestToApp("GET", "/api/tagging", undefined, {
+    "sec-fetch-site": "cross-site",
+  });
+  assert.equal(fromElsewhere.status, 403);
 });

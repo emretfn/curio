@@ -4,6 +4,7 @@ import {
   getBookmark,
   upsertBookmark,
 } from "./bookmarks.ts";
+import { correctBookmark, recordClassification } from "./labels.ts";
 import {
   LONG_POST_CHARACTERS,
   listBookmarks,
@@ -20,8 +21,10 @@ import {
 } from "./parsing.ts";
 import { insertRawCapture } from "./raw-captures.ts";
 import { connectionOf, type Store } from "./store.ts";
+import { summariseTagging } from "./tagging.ts";
 import { readFixture } from "./testing/fixtures.ts";
 import { openTempStore } from "./testing/temp-database.ts";
+import { addTagAlias, retireTag } from "./vocabulary.ts";
 
 const posted = new Date("2026-01-01T00:00:00.000Z");
 const captured = new Date("2026-10-05T09:00:00.000Z");
@@ -526,6 +529,16 @@ test("the summary counts what is in the library, leaving out what was removed on
       { lang: "en", bookmarks: 3 },
       { lang: "tr", bookmarks: 1 },
     ],
+    categories: [{ category: null, bookmarks: 4 }],
+    formats: [{ format: null, bookmarks: 4 }],
+    tags: [],
+    other: {
+      bookmarks: 0,
+      tooLittleText: 0,
+      noneOfTheAbove: 0,
+      share: 0,
+      noneOfTheAboveShare: 0,
+    },
   });
   expect(removed).toBeDefined();
 });
@@ -571,6 +584,16 @@ test("an empty library summarises to nothing", () => {
     authors: 0,
     topAuthors: [],
     languages: [],
+    categories: [],
+    formats: [],
+    tags: [],
+    other: {
+      bookmarks: 0,
+      tooLittleText: 0,
+      noneOfTheAbove: 0,
+      share: 0,
+      noneOfTheAboveShare: 0,
+    },
   });
 });
 
@@ -838,6 +861,7 @@ test("the matches are counted, with what each further filter would leave of them
     withQuote: 1,
     long: 1,
     withheldOnX: 0,
+    tooLittleText: 0,
     languages: [
       { lang: "en", bookmarks: 8 },
       { lang: null, bookmarks: 1 },
@@ -849,6 +873,9 @@ test("the matches are counted, with what each further filter would leave of them
       { year: 2025, bookmarks: 1 },
     ],
     removedOnX: 1,
+    categories: [{ category: null, bookmarks: 11 }],
+    formats: [{ format: null, bookmarks: 11 }],
+    tags: [],
   });
 });
 
@@ -924,9 +951,13 @@ test("a search with nothing to search for counts nothing, and an empty library c
     withQuote: 0,
     long: 0,
     withheldOnX: 0,
+    tooLittleText: 0,
     languages: [],
     years: [],
     removedOnX: 0,
+    categories: [],
+    formats: [],
+    tags: [],
   };
 
   expect(summariseMatches(kinds().store, { query: " ?! " })).toEqual(nothing);
@@ -1067,4 +1098,391 @@ test("a post withheld after the library captured it is listed as withheld and st
   expect(getBookmark(store, kept)?.withheldOnXAt).toBeNull();
   expect(listBookmarks(store, { onlyWithheld: true }).total).toBe(0);
   expect(summariseMatches(store).withheldOnX).toBe(0);
+});
+
+/** Six bookmarks filed by the classifier, one of them refiled by the owner, and a seventh filed under nothing. */
+function labelled() {
+  const base = library();
+  const file = (
+    id: number,
+    text: string,
+    category: string,
+    format: string,
+    tags: string[],
+  ) => {
+    const postId = base.add(id, { text, lang: id === 4 ? "tr" : "en" });
+    recordClassification(base.store, {
+      postId,
+      category,
+      format,
+      tags,
+      tooLittleText: false,
+      instructionsVersion: 1,
+      model: "a-model",
+    });
+    return postId;
+  };
+  const ids = {
+    hooks: file(1, "a guide to hooks", "web-dev", "guide", ["react"]),
+    routing: file(2, "routing in depth", "web-dev", "guide", [
+      "react",
+      "nextjs",
+    ]),
+    starter: file(3, "a new starter is out", "web-dev", "launch", ["nextjs"]),
+    motion: file(4, "hareketli bir tasarım", "design", "showcase", [
+      "animation",
+    ]),
+    gallery: file(5, "a gallery to browse", "design", "resource-list", []),
+    pricing: file(6, "what the plans cost", "ai-agents", "discussion", [
+      "ai-pricing",
+    ]),
+    unfiled: base.add(7, { text: "nobody has looked at this" }),
+  };
+  // The owner moves the gallery to web development and gives it a tag.
+  correctBookmark(base.store, ids.gallery, {
+    category: "web-dev",
+    addTags: ["ui-components"],
+  });
+  return { ...base, ids };
+}
+
+const listed = (store: Store, options = {}) =>
+  listBookmarks(store, options).bookmarks.map(({ postId }) => postId);
+
+test("bookmarks are filtered by category, format and tags, all of which must hold", () => {
+  const { store, ids } = labelled();
+
+  expect(listed(store, { category: "web-dev" })).toEqual([
+    ids.gallery,
+    ids.starter,
+    ids.routing,
+    ids.hooks,
+  ]);
+  expect(listed(store, { category: "web-dev", format: "guide" })).toEqual([
+    ids.routing,
+    ids.hooks,
+  ]);
+  expect(listed(store, { tags: ["react"] })).toEqual([ids.routing, ids.hooks]);
+  expect(listed(store, { tags: ["react", "nextjs"] })).toEqual([ids.routing]);
+  expect(listed(store, { format: "launch", tags: ["react"] })).toEqual([]);
+  expect(listed(store, { category: "design", lang: "tr" })).toEqual([
+    ids.motion,
+  ]);
+});
+
+test("a filter reads the owner's correction before the classifier's answer", () => {
+  const { store, ids } = labelled();
+
+  expect(listed(store, { category: "design" })).toEqual([ids.motion]);
+  expect(listed(store, { tags: ["ui-components"] })).toEqual([ids.gallery]);
+
+  correctBookmark(store, ids.hooks, { removeTags: ["react"] });
+
+  expect(listed(store, { tags: ["react"] })).toEqual([ids.routing]);
+});
+
+test("a tag in a filter may be written any way the taxonomy or the owner knows it", () => {
+  const { store, ids } = labelled();
+  addTagAlias(store, "hareket", "animation");
+
+  expect(listed(store, { tags: ["Next.js"] })).toEqual([
+    ids.starter,
+    ids.routing,
+  ]);
+  expect(listed(store, { tags: ["#NEXTJS", "next.js"] })).toEqual([
+    ids.starter,
+    ids.routing,
+  ]);
+  expect(listed(store, { tags: ["Hareket"] })).toEqual([ids.motion]);
+});
+
+test("the filed and the unfiled can each be asked for alone", () => {
+  const { store, ids } = labelled();
+
+  expect(listed(store, { classified: false })).toEqual([ids.unfiled]);
+  expect(listBookmarks(store, { classified: true }).total).toBe(6);
+
+  // Filed by the owner alone counts as filed.
+  correctBookmark(store, ids.unfiled, { category: "life" });
+
+  expect(listed(store, { classified: false })).toEqual([]);
+  expect(listed(store, { category: "life" })).toEqual([ids.unfiled]);
+});
+
+test("a category, format or tag the taxonomy does not hold is refused, not read as nothing found", () => {
+  const { store } = labelled();
+
+  expect(() => listBookmarks(store, { category: "cooking" })).toThrow(
+    /not a category. The categories are: ai-agents, /,
+  );
+  expect(() => listBookmarks(store, { format: "thread" })).toThrow(
+    /not a format. The formats are: launch, /,
+  );
+  expect(() => listBookmarks(store, { tags: ["react", "rust"] })).toThrow(
+    /"rust" is not a tag/,
+  );
+  expect(() =>
+    searchBookmarks(store, { query: "guide", category: "cooking" }),
+  ).toThrow(RangeError);
+  expect(() => summariseMatches(store, { tags: ["rust"] })).toThrow(RangeError);
+});
+
+test("a retired tag is on no bookmark and in no count, and asking for it says it was retired", () => {
+  const { store, ids } = labelled();
+
+  retireTag(store, "react");
+
+  expect(listed(store, { tags: ["nextjs"] })).toEqual([
+    ids.starter,
+    ids.routing,
+  ]);
+  expect(getBookmark(store, ids.routing)?.labels).toMatchObject({
+    tags: ["nextjs"],
+    classification: { tags: ["nextjs"] },
+  });
+  expect(summariseMatches(store).tags.map(({ tag }) => tag)).not.toContain(
+    "react",
+  );
+  expect(summariseLibrary(store).tags.map(({ tag }) => tag)).not.toContain(
+    "react",
+  );
+  expect(() => listBookmarks(store, { tags: ["react"] })).toThrow(
+    /"react" is a tag that was retired/,
+  );
+});
+
+test("a search is narrowed by the same filters", () => {
+  const { store, ids } = labelled();
+
+  expect(found(store, "guide routing", { match: "any" })).toHaveLength(2);
+  expect(
+    found(store, "guide routing", { match: "any", tags: ["nextjs"] }),
+  ).toEqual([ids.routing]);
+  expect(found(store, "starter", { category: "design" })).toEqual([]);
+});
+
+test("the matches are counted by category, format and tag", () => {
+  const { store } = labelled();
+  const all = summariseMatches(store);
+
+  expect(all.categories).toEqual([
+    { category: "web-dev", bookmarks: 4 },
+    { category: null, bookmarks: 1 },
+    { category: "ai-agents", bookmarks: 1 },
+    { category: "design", bookmarks: 1 },
+  ]);
+  expect(all.formats).toEqual([
+    { format: "guide", bookmarks: 2 },
+    { format: null, bookmarks: 1 },
+    { format: "discussion", bookmarks: 1 },
+    { format: "launch", bookmarks: 1 },
+    { format: "resource-list", bookmarks: 1 },
+    { format: "showcase", bookmarks: 1 },
+  ]);
+  expect(all.tags).toEqual([
+    { tag: "nextjs", bookmarks: 2 },
+    { tag: "react", bookmarks: 2 },
+    { tag: "ai-pricing", bookmarks: 1 },
+    { tag: "animation", bookmarks: 1 },
+    { tag: "ui-components", bookmarks: 1 },
+  ]);
+});
+
+test("a chosen category leaves the other categories on offer, and narrows the formats and tags", () => {
+  const { store } = labelled();
+  const chosen = summariseMatches(store, { category: "web-dev" });
+
+  expect(chosen.total).toBe(4);
+  expect(chosen.categories).toEqual(summariseMatches(store).categories);
+  expect(chosen.formats).toEqual([
+    { format: "guide", bookmarks: 2 },
+    { format: "launch", bookmarks: 1 },
+    { format: "resource-list", bookmarks: 1 },
+  ]);
+  expect(chosen.tags).toEqual([
+    { tag: "nextjs", bookmarks: 2 },
+    { tag: "react", bookmarks: 2 },
+    { tag: "ui-components", bookmarks: 1 },
+  ]);
+
+  // A chosen format does the same for formats, within the category.
+  const guides = summariseMatches(store, {
+    category: "web-dev",
+    format: "guide",
+  });
+  expect(guides.formats).toEqual(chosen.formats);
+  expect(guides.categories).toEqual([{ category: "web-dev", bookmarks: 2 }]);
+
+  // A tag's count is what adding it would leave.
+  expect(summariseMatches(store, { tags: ["react"] }).tags).toEqual([
+    { tag: "react", bookmarks: 2 },
+    { tag: "nextjs", bookmarks: 1 },
+  ]);
+  for (const { tag, bookmarks } of chosen.tags) {
+    expect(
+      listBookmarks(store, { category: "web-dev", tags: [tag] }).total,
+      tag,
+    ).toBe(bookmarks);
+  }
+});
+
+test("the counts beside a search are taken among what it found", () => {
+  const { store } = labelled();
+
+  expect(
+    summariseMatches(store, { query: "guide routing", match: "any" }),
+  ).toMatchObject({
+    total: 2,
+    categories: [{ category: "web-dev", bookmarks: 2 }],
+    formats: [{ format: "guide", bookmarks: 2 }],
+    tags: [
+      { tag: "react", bookmarks: 2 },
+      { tag: "nextjs", bookmarks: 1 },
+    ],
+  });
+});
+
+test("the library's summary counts its categories, formats and tags, leaving out what was removed on X", () => {
+  const { store, ids, captureId } = labelled();
+  const removed = insertRawCapture(store, {
+    source: "x-web-client",
+    operation: "DeleteBookmark",
+    payload: readFixture("x-web-client/DeleteBookmark/2026-10-12-done.json"),
+    requestBody: JSON.stringify({ variables: { tweet_id: ids.pricing } }),
+    receivedAt: new Date("2026-10-06T09:00:00.000Z"),
+  }).id;
+  parseCapture(store, removed);
+  const summary = summariseLibrary(store);
+
+  expect(captureId).toBeLessThan(removed);
+  expect(summary.removedOnX).toBe(1);
+  expect(summary.categories).toEqual([
+    { category: "web-dev", bookmarks: 4 },
+    { category: null, bookmarks: 1 },
+    { category: "design", bookmarks: 1 },
+  ]);
+  expect(summary.formats).toContainEqual({ format: "guide", bookmarks: 2 });
+  expect(summary.formats).not.toContainEqual({
+    format: "discussion",
+    bookmarks: 1,
+  });
+  expect(summary.tags).toEqual([
+    { tag: "nextjs", bookmarks: 2 },
+    { tag: "react", bookmarks: 2 },
+    { tag: "animation", bookmarks: 1 },
+    { tag: "ui-components", bookmarks: 1 },
+  ]);
+});
+
+/** A week's bookmarks under "other", of both kinds, with what the classifier proposed for some. */
+function withOthers() {
+  const base = library();
+  const file = (
+    id: number,
+    category: string,
+    parts: { tooLittleText?: boolean; proposedTags?: string[] } = {},
+  ) => {
+    const postId = base.add(id, { text: `post ${id}` });
+    recordClassification(base.store, {
+      postId,
+      category,
+      format: parts.tooLittleText ? "unclear" : "discussion",
+      tags: [],
+      proposedTags: parts.proposedTags ?? [],
+      tooLittleText: parts.tooLittleText ?? false,
+      instructionsVersion: 1,
+      model: "a-model",
+    });
+    return postId;
+  };
+  const ids = {
+    bareLink: file(1, "other", { tooLittleText: true }),
+    fewWords: file(2, "other", { tooLittleText: true }),
+    gardening: file(3, "other", { proposedTags: ["gardening"] }),
+    cooking: file(4, "other", { proposedTags: ["Cooking", "gardening"] }),
+    web: file(5, "web-dev", { proposedTags: ["drizzle"] }),
+    design: file(6, "design"),
+    // Filed for want of text by the classifier, and then filed by the owner.
+    rescued: file(7, "other", { tooLittleText: true }),
+    // Filed under other by the owner, over the classifier's category.
+    demoted: file(8, "tools"),
+  };
+  correctBookmark(base.store, ids.rescued, { category: "life" });
+  correctBookmark(base.store, ids.demoted, { category: "other" });
+  return { ...base, ids };
+}
+
+test("the two reasons for other can each be listed alone, within a period like any other filter", () => {
+  const { store, ids } = withOthers();
+
+  expect(listed(store, { category: "other" })).toEqual([
+    ids.demoted,
+    ids.cooking,
+    ids.gardening,
+    ids.fewWords,
+    ids.bareLink,
+  ]);
+  expect(listed(store, { category: "other", tooLittleText: true })).toEqual([
+    ids.fewWords,
+    ids.bareLink,
+  ]);
+  // Text enough, and no category that fits: what says a category is missing.
+  expect(listed(store, { category: "other", tooLittleText: false })).toEqual([
+    ids.demoted,
+    ids.cooking,
+    ids.gardening,
+  ]);
+  expect(
+    listed(store, {
+      category: "other",
+      tooLittleText: false,
+      bookmarkedSince: day(4),
+      bookmarkedBefore: day(8),
+    }),
+  ).toEqual([ids.cooking]);
+  // A bookmark the owner filed is no longer there for want of text, wherever it went.
+  expect(listed(store, { tooLittleText: true })).not.toContain(ids.rescued);
+  expect(listBookmarks(store, { tooLittleText: false }).total).toBe(6);
+});
+
+test("the bookmarks a tag was proposed for are listed by the proposal, however it is written", () => {
+  const { store, ids } = withOthers();
+
+  expect(listed(store, { proposedTag: "gardening" })).toEqual([
+    ids.cooking,
+    ids.gardening,
+  ]);
+  expect(listed(store, { proposedTag: "#Cooking" })).toEqual([ids.cooking]);
+  expect(listed(store, { proposedTag: "drizzle", category: "other" })).toEqual(
+    [],
+  );
+  expect(listed(store, { proposedTag: "nothing-proposed-this" })).toEqual([]);
+  // A proposal is on no bookmark as a tag.
+  expect(
+    listBookmarks(store, { classified: true }).bookmarks.flatMap(
+      ({ labels }) => labels.tags,
+    ),
+  ).toEqual([]);
+});
+
+test("the matches and the library both count other by its two reasons", () => {
+  const { store } = withOthers();
+  const week = summariseMatches(store, {
+    bookmarkedSince: day(2),
+    bookmarkedBefore: day(6),
+  });
+  const all = summariseLibrary(store);
+
+  expect(summariseMatches(store).tooLittleText).toBe(2);
+  expect(week.tooLittleText).toBe(1);
+  expect(week.categories).toContainEqual({ category: "other", bookmarks: 3 });
+  expect(all.other).toEqual({
+    bookmarks: 5,
+    tooLittleText: 2,
+    noneOfTheAbove: 3,
+    share: 5 / 8,
+    noneOfTheAboveShare: 3 / 8,
+  });
+  // The same numbers the classifier's own summary reports.
+  expect(summariseTagging(store).other).toEqual(all.other);
 });

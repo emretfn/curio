@@ -72,6 +72,23 @@ The status page, `/status`, shows the totals:
 
 **Anything above zero in "Captures failed" or "Entries failed" means X has changed a response**, or sent a kind the parser has not met. This is the failure this route is prone to. Run `pnpm reparse`: it prints each kind of mismatch once, with the path into the response where understanding stopped and what was expected there, and never a bookmark's content. Then follow "When X changes a shape" in [the parsers' README](../core/src/parsers/README.md). `pnpm reparse` can run while the app is running, and a second run changes nothing.
 
+## Tagging new bookmarks
+
+Each bookmark is filed under a category, a format and tags by the classifier in [`packages/tagger`](../tagger/README.md), which asks the Claude API. The first run and any backfill are started by hand (`pnpm tag`). After that the app keeps up by itself (`src/server/tagging.ts`):
+
+- **When.** A pass is asked for 15 seconds after the app starts, for what arrived while it was closed or could not be tagged; a minute after the last capture of a burst is stored; and once an hour, which is how a pass that failed is tried again.
+- **Never in the way of a capture.** The ingest route stores, parses, asks for a pass and answers the extension. It does not wait for the pass, and nothing a pass does reaches the answer. A pass never throws.
+- **Without a key, or without the network,** a pass does nothing and the bookmarks stay as they are, stored and unclassified. No key is the state the app starts in: tagging is then off, which is not an error. The key is one line of the `.env` file at the repo's root, under `X_BOOKMARKS_ANTHROPIC_API_KEY`; the tagger's README says how to put it there.
+- **The key is not in the app's environment.** Next loads `.env` files from its project directory, which is this one, `packages/web`, and not from the repo's root. This directory must hold no `.env*` file with the key in it, and a test fails if it holds one at all. The tagger reads the root file itself when a pass runs and hands the key to its client; no variable of this process ever holds it. The variable's name is this project's own for the same reason: `ANTHROPIC_API_KEY` in a process's environment takes over the billing of any Claude Code or Agent SDK work started from it. Should that variable be set in the app's environment, a pass does not use it and logs a warning, which `GET /api/tagging` carries too.
+- **Small on purpose.** A pass classifies only bookmarks with no answer, leaves a backlog of more than 150 to `pnpm tag`, and spends a few cents at most. The limits are the tagger's.
+- **What it sends and where** is the tagger's business and its alone: the app loads the tagger when the first pass runs, and makes no request of its own.
+
+`GET /api/tagging` says how things stand: what the last pass came to (`no-key`, `backlog`, `nothing-to-do`, `ran`, `daily-cap` or `error`, with a message fit to show and whether it is a problem), whether one is running or due, and the library's totals: classified, waiting, failed, the share filed under "other", what has been spent. It holds no bookmark. It reads and starts nothing, checks `Host` like the other API routes, sends no CORS header and refuses a request a browser says came from another site. The same is available to a server component as `taggingStatus()`. No screen shows it yet.
+
+The filters and counts for category, format and tags are in core's query functions (`category`, `format`, `tags` and `classified` on `listBookmarks`, `searchBookmarks` and `summariseMatches`; `labels` on every bookmark), and corrections are written with core's `correctBookmark`. `src/server/library.ts` does not use them yet.
+
+The tag vocabulary is the owner's to change from a screen, with core's functions and nothing else: `listTags`, `listTagProposals` for the proposals worth a look, and `acceptTagProposal`, `addTag`, `dismissTagProposal`, `retireTag`, `renameTag`, `mergeTags`, `addTagAlias` and `removeTagAlias` for what the owner decides. Each carries the bookmarks with it. A route that calls `acceptTagProposal` or `addTag` should then call `scheduleTagging(0)`: the pass that follows asks the bookmarks that mention the new tag, and can add that tag to them and nothing else. The tagger's README has what each does to bookmarks.
+
 ## Backups
 
 The raw captures cannot be collected again, so the app keeps snapshots of the whole database outside the repo.

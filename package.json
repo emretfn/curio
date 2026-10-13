@@ -13,6 +13,7 @@
     "extension:build": "pnpm --filter @x-bookmarks/extension run build",
     "reparse": "pnpm --silent --filter @x-bookmarks/web run reparse",
     "backup": "pnpm --silent --filter @x-bookmarks/web run backup",
+    "tag": "pnpm --silent --filter @x-bookmarks/tagger run tag",
     "fixtures:build": "pnpm --silent --filter @x-bookmarks/core run fixtures:build",
     "fixtures:check": "pnpm --silent --filter @x-bookmarks/core run fixtures:check",
     "typecheck": "tsc --noEmit && pnpm --recursive run typecheck",

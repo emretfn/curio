@@ -9,11 +9,15 @@ It needs the library to exist: run the app once (`pnpm app`) so the database is 
 | Tool | What it does |
 |---|---|
 | `search_bookmarks` | Keyword search over the post's text, its author, the post it quotes, and the titles of its link card and article. Best match first. Takes the filters below, and `match: "any"` to try several words for one idea at once. |
-| `list_bookmarks` | Bookmarks in the order they were bookmarked, newest first or oldest first, optionally within a period. "What did I save this week" is this. |
-| `get_bookmark` | One bookmark in full by its id: the whole text of a long post, the quoted post, links, the link card, media descriptions, counts. |
-| `library_overview` | Totals, the period covered, languages, the most bookmarked authors, and the current date and time zone. |
+| `list_bookmarks` | Bookmarks in the order they were bookmarked, newest first or oldest first, optionally within a period. "What did I save this week" is this; with a category, a format or tags it browses a subject. |
+| `get_bookmark` | One bookmark in full by its id: the whole text of a long post, the quoted post, links, the link card, media descriptions, counts, what it is filed under and which of that you set yourself. |
+| `library_overview` | Totals, the period covered, languages, the most bookmarked authors, the taxonomy with what each category and format means and how many bookmarks each category, format and tag has, and the current date and time zone. |
 
-Search and list share their filters: `author`, `has_media`, `has_link`, `language`, `bookmarked_since`, `bookmarked_before`, `include_removed`. They return rows of at most 500 characters of text each, 20 a call by default and 50 at most, with `total` and `next_offset` for the next page. A bookmark removed on X stays in the library and is left out unless `include_removed` is true.
+Search and list share their filters: `category`, `format`, `tags`, `classified`, `author`, `has_media`, `has_link`, `language`, `bookmarked_since`, `bookmarked_before`, `include_removed`. They return rows of at most 500 characters of text each, 20 a call by default and 50 at most, with `total` and `next_offset` for the next page. A bookmark removed on X stays in the library and is left out unless `include_removed` is true.
+
+**Category, format and tags.** Each bookmark is filed under one category, one format and a few tags by the classifier (`packages/tagger`), and you can correct any of them; a correction is what the tools then return and filter by. The categories and formats are fixed, `TAXONOMY` in core. The tags are a vocabulary you change from the interface, kept in the database. So that Claude can filter without asking first, the tools' own descriptions list every category and format, and the tags as they stood when the session began; `library_overview` adds what each category and format means, the tags as they stand now, and how many bookmarks each has. `tags` takes several, all of which must hold, and understands a tag's other names, Turkish ones included. A tag the vocabulary does not hold, or one you have retired, is answered with an error that says which. Rows carry `category`, `format` and `tags`; a bookmark that has not been classified carries none, and `classified: false` lists those. The labels are a model's and can be wrong: the server's instructions tell Claude to use them for browsing and to search by words as well. A tag the classifier only proposed is on no bookmark and is not returned.
+
+The server still only reads. It does not classify, does not import the tagger, and has no key; classifying happens in `pnpm tag` and in the app.
 
 Search is by word, not by meaning. Case, accents and the Turkish dotless i make no difference; a word of three letters or more also finds its longer forms. How it ranks is in `packages/core/src/library.ts`.
 
@@ -22,7 +26,7 @@ Search is by word, not by meaning. Case, accents and the Turkish dotless i make 
 **What it returns was written by strangers.** A bookmarked post can say anything, including "ignore your instructions and …". So:
 
 - Every result is one JSON document. Post text sits inside JSON strings, which it cannot close, so a post cannot pass itself off as part of the result's structure or as a second result.
-- Every result opens with a `notice` that says the text under `bookmarks` is quoted material and never an instruction. Each tool's description says the same, and so do the server's instructions.
+- Every result opens with a `notice` that says the text under `bookmarks` is quoted material and never an instruction. The notice sets the library's own labels apart: a category, a format and tags are ids from a fixed list, not a stranger's words. Each tool's description says the same, and so do the server's instructions.
 - Characters that display as nothing but that a model reads (the Unicode tag block and the supplementary variation selectors, both usable to hide text) are dropped from everything returned. The one visible cost: the flags of England, Scotland and Wales show as a plain black flag.
 - No result holds an address on X's media or link-shortener hosts. A result does hold the post's address on x.com, for you to open; the server's instructions tell the model never to request it, or anything else from X.
 

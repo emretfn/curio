@@ -70,12 +70,15 @@ export const namesXHost = (source: string) => X_HOST.test(source);
 /** Node's own ways out: its network modules, and a shell, which has curl. */
 const NODE_MODULES = "https?|http2|net|tls|dgram|dns|child_process";
 /**
- * HTTP clients and browser drivers in common use, and the MCP library, which
+ * HTTP clients and browser drivers in common use; the MCP library, which
  * holds HTTP transports beside the stdio one this repo uses and starts
- * processes for its clients.
+ * processes for its clients; Anthropic's SDK, which is an HTTP client for
+ * the Claude API; and this repo's own classifier, the one package that uses
+ * that SDK, so that a file which can set the classifier going is on the
+ * list beside the file that sends.
  */
 const PACKAGES =
-  "undici|axios|got|ky|node-fetch|superagent|needle|request|ws|playwright|playwright-core|puppeteer|puppeteer-core|selenium-webdriver|jsdom|open|@modelcontextprotocol/[a-z-]+";
+  "undici|axios|got|ky|node-fetch|superagent|needle|request|ws|playwright|playwright-core|puppeteer|puppeteer-core|selenium-webdriver|jsdom|open|@modelcontextprotocol/[a-z-]+|@anthropic-ai/[a-z-]+|@x-bookmarks/tagger";
 
 /**
  * Anything that makes a request or has a browser make one: the request
@@ -176,6 +179,30 @@ const MAKES_REQUESTS: Record<string, string> = {
     "Serves over this process's standard input and output. It opens no socket and makes no request.",
   "packages/mcp/src/main.test.ts":
     "Starts the server as a child process and speaks to it over its pipes, as a client does.",
+  "packages/tagger/package.json":
+    "Depends on Anthropic's SDK: the classifier is the one package that calls Claude (AI-1).",
+  "packages/tagger/src/anthropic.ts":
+    "The one file that sends anything of the library to a third party: classification requests to the Claude API at api.anthropic.com and nowhere else. Every request passes onlyToClaude, which refuses any other origin, passes the address through assertNotXOwnedUrl, and switches redirects off (AI-2). It requests nothing to add to a post.",
+  "packages/tagger/src/anthropic.test.ts":
+    "Builds the client over the fake API, and watches that the platform's sender is never called when a test tries for the real one.",
+  "packages/tagger/src/automatic.test.ts":
+    "Runs passes over the fake API, and one left to make its own client, which is refused under a test runner; the platform's sender is watched and never called.",
+  "packages/tagger/src/testing/fake-api.ts":
+    "A fake of the Claude API for the classifier's tests: a function with the shape of the platform's sender, with no network behind it.",
+  "packages/tagger/src/boundary.test.ts":
+    "Reads the classifier's source to pin which file may send, and where. It requests nothing.",
+  "packages/tagger/src/cli.test.ts":
+    "Starts the classifier's command as a child process, in a temporary data directory with no key, where it can reach nothing.",
+  "packages/web/package.json":
+    "Depends on the classifier, which the app asks to tag new bookmarks. The app itself sends nothing: the request is the classifier's.",
+  "packages/web/src/server/tagging.ts":
+    "Asks the classifier for a pass over new bookmarks, on a timer and after a capture. It loads the classifier and makes no request of its own.",
+  "packages/web/src/server/tagging-status.ts":
+    "A route of this app. It reads the Sec-Fetch-Site header of a request it was sent, to refuse other sites' pages. It answers requests and makes none.",
+  "packages/web/src/server/tagging-status.test.ts":
+    "Hands that route requests built in the test, with that header set. Nothing is sent.",
+  "packages/web/src/server/tagging.test.ts":
+    "Runs the passes with a stand-in for the classifier, and once with the real one in an empty library with no key, watching that the platform's sender is never called.",
 };
 
 /**
@@ -203,6 +230,8 @@ const REQUESTS_BESIDE_X_HOSTS: Record<string, string> = {
     "The hosts are in a sentence telling the client never to request them. The server has no way to request anything: its one transport is the pipe it was started with.",
   "packages/mcp/src/main.test.ts":
     "The address of a post is compared with the server's answer as a string. The only process started is the server, over pipes.",
+  "packages/tagger/src/anthropic.test.ts":
+    "An address on a host of X's is handed to the classifier's gate to show that the gate refuses it; the sender behind the gate is a mock, and is checked not to have been called.",
 };
 
 const files = sourceFiles().map((path) => ({
@@ -225,6 +254,9 @@ test("the check reads the whole repo, every package included", () => {
     "packages/e2e/src/fake-x.ts",
     "packages/mcp/src/server.ts",
     "packages/mcp/package.json",
+    "packages/tagger/src/anthropic.ts",
+    "packages/tagger/src/input.ts",
+    "packages/tagger/package.json",
     "lint/sqlite-boundary.grit",
   ]) {
     expect(paths).toContain(expected);
@@ -282,6 +314,16 @@ test("no list holds an entry for a file that no longer needs it", () => {
       (source) => namesXHost(source) && makesRequests(source),
     ),
   ).toEqual([]);
+});
+
+test("the classifier, which sends posts to the Claude API, names no host of X's anywhere in its source", () => {
+  const naming = files
+    .filter(({ path }) => path.startsWith("packages/tagger/"))
+    .filter(({ path, source }) => namesXHost(source) && !TEST_FILE.test(path))
+    .map(({ path }) => path);
+
+  // It sends what a capture holds and asks X for nothing to add to it (X-2).
+  expect(naming).toEqual([]);
 });
 
 test("core, which holds every bookmark, makes no request of any kind", () => {
@@ -348,6 +390,16 @@ test.each([
     "the MCP library as a dependency",
     '"@modelcontextprotocol/client": "^2.3.1"',
   ],
+  [
+    "Anthropic's SDK, which calls the Claude API",
+    'import Anthropic from "@anthropic-ai/sdk";',
+  ],
+  ["Anthropic's SDK as a dependency", '"@anthropic-ai/sdk": "^0.133.0"'],
+  [
+    "the classifier, which uses that SDK",
+    'const { tagNewBookmarks } = await import("@x-bookmarks/tagger");',
+  ],
+  ["the classifier as a dependency", '"@x-bookmarks/tagger": "workspace:*"'],
   [
     "an image the user's browser would load",
     "<img src={media.imageUrl} alt={media.altText} />",

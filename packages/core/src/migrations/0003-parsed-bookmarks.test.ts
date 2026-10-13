@@ -48,6 +48,14 @@ test("a bookmark stored before the migration keeps its content and its first-see
     card: null,
     article: null,
     quoted: null,
+    // Filed under nothing until the classifier or the owner says.
+    labels: {
+      category: null,
+      format: null,
+      tags: [],
+      corrected: { category: false, format: false, tags: false },
+      classification: null,
+    },
     likeCount: null,
     repostCount: null,
     replyCount: null,

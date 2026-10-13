@@ -34,8 +34,51 @@ export type BookmarkSighting = Pick<PostContent, Essential> &
     captureId: number;
   };
 
+/**
+ * What the classifier last said of a bookmark, and what produced it. The
+ * taxonomy is `TAXONOMY` in `taxonomy.ts`.
+ */
+export interface Classification {
+  category: string;
+  format: string;
+  /** The tags of the vocabulary it gave, in alphabetical order. */
+  tags: string[];
+  /** Tags it suggested that the vocabulary does not hold. They are not tags of the bookmark. */
+  proposedTags: string[];
+  /** Whether the stored text was too little to tell, which files a bookmark under "other". */
+  tooLittleText: boolean;
+  /** The version of the taxonomy it was given. */
+  taxonomyVersion: number;
+  /** The version of the classifier's own instructions. */
+  instructionsVersion: number;
+  /** The version of the tag vocabulary it has been asked about. Tags added since, it was never offered. */
+  vocabularyVersion: number;
+  /** The model that answered, or null where none was asked because nothing stored was worth sending. */
+  model: string | null;
+  classifiedAt: Date;
+}
+
+/**
+ * What a bookmark is filed under. Each part is the owner's where the owner
+ * has set it, and the classifier's otherwise.
+ */
+export interface BookmarkLabels {
+  /** A category id of the taxonomy, or null for a bookmark neither the classifier nor the owner has filed. */
+  category: string | null;
+  /** A format id of the taxonomy, or null likewise. */
+  format: string | null;
+  /** In alphabetical order. */
+  tags: string[];
+  /** Which of the three the owner has corrected. A correction outlives every later run of the classifier. */
+  corrected: { category: boolean; format: boolean; tags: boolean };
+  /** The classifier's own answer, whatever the owner made of it. Null until it has classified the bookmark. */
+  classification: Classification | null;
+}
+
 export interface Bookmark extends PostContent {
   quoted: QuotedPost | null;
+  /** What it is filed under: category, format and tags. */
+  labels: BookmarkLabels;
   sortIndex: string | null;
   /**
    * An estimate of when the bookmark was made, read out of `sortIndex`. Null
@@ -148,6 +191,22 @@ export interface BookmarkRow {
   firstSeenCaptureId: number;
   lastSeenAt: number;
   lastSeenCaptureId: number;
+  category: string | null;
+  format: string | null;
+  tags: string;
+  ownerCategory: string | null;
+  ownerFormat: string | null;
+  ownerTags: number;
+  classifierCategory: string | null;
+  classifierFormat: string | null;
+  classifierTags: string;
+  proposedTags: string | null;
+  tooLittleText: number | null;
+  taxonomyVersion: number | null;
+  instructionsVersion: number | null;
+  vocabularyVersion: number | null;
+  classifierModel: string | null;
+  classifiedAt: number | null;
 }
 
 /** Column and the row field it is read into, for every column a sighting sets. */
@@ -207,6 +266,35 @@ export const WITHHELD_ON_X_AT = `(
     WHERE i.kind = 'post-unavailable' AND i.post_id = b.post_id
       AND c.received_at > b.last_seen_at)`;
 
+/**
+ * Package-internal: the category and the format a row of `FROM_BOOKMARKS` is
+ * filed under, the owner's correction (`co`) before the classifier's answer
+ * (`cl`). Every filter and count reads them from here.
+ */
+export const CATEGORY = "coalesce(co.category, cl.category)";
+export const FORMAT = "coalesce(co.format, cl.format)";
+
+/**
+ * Package-internal: whether such a row is filed under "other" for want of
+ * text: the classifier said the stored text was too little to tell, and the
+ * owner has not filed the bookmark anywhere since. The other bookmarks
+ * under "other" had text enough and fitted no category. One place, so that
+ * the filter, the counts and the tagging summary cannot mean different
+ * things by it.
+ */
+export const TOO_LITTLE_TEXT =
+  "(co.category IS NULL AND coalesce(cl.too_little_text, 0) = 1)";
+
+/** The tags the classifier gave, of those the vocabulary still holds. */
+const CLASSIFIER_TAGS = `(
+    SELECT t.post_id, t.tag FROM bookmark_tags t
+    JOIN tags v ON v.tag = t.tag AND v.retired_at IS NULL)`;
+
+/** Package-internal: the tags of a row `b` as a JSON array, from a table or view that holds `post_id` and `tag`. */
+const tagsFrom = (source: string) => `(
+    SELECT json_group_array(tag)
+    FROM (SELECT tag FROM ${source} WHERE post_id = b.post_id ORDER BY tag))`;
+
 /** Package-internal: the columns of a `BookmarkRow`, for `bookmarkFromRow`, read from `FROM_BOOKMARKS`. */
 export const SELECT_BOOKMARK_COLUMNS = `
   SELECT b.post_id AS postId,
@@ -216,12 +304,31 @@ export const SELECT_BOOKMARK_COLUMNS = `
          ${REMOVED_ON_X_AT} AS removedOnXAt,
          ${WITHHELD_ON_X_AT} AS withheldOnXAt,
          b.first_seen_at AS firstSeenAt, b.first_seen_capture_id AS firstSeenCaptureId,
-         b.last_seen_at AS lastSeenAt, b.last_seen_capture_id AS lastSeenCaptureId`;
+         b.last_seen_at AS lastSeenAt, b.last_seen_capture_id AS lastSeenCaptureId,
+         ${CATEGORY} AS category, ${FORMAT} AS format,
+         ${tagsFrom("bookmark_effective_tags")} AS tags,
+         co.category AS ownerCategory, co.format AS ownerFormat,
+         EXISTS (
+           SELECT 1 FROM bookmark_tag_corrections
+           WHERE post_id = b.post_id) AS ownerTags,
+         cl.category AS classifierCategory, cl.format AS classifierFormat,
+         ${tagsFrom(CLASSIFIER_TAGS)} AS classifierTags,
+         cl.proposed_tags AS proposedTags, cl.too_little_text AS tooLittleText,
+         cl.taxonomy_version AS taxonomyVersion,
+         cl.instructions_version AS instructionsVersion,
+         cl.vocabulary_version AS vocabularyVersion,
+         cl.model AS classifierModel, cl.classified_at AS classifiedAt`;
 
-/** Package-internal: every bookmark as `b`, with what the mutations say about its post as `m`. */
+/**
+ * Package-internal: every bookmark as `b`, with what the mutations say about
+ * its post as `m`, the classifier's answer for it as `cl` and the owner's
+ * correction of that as `co`.
+ */
 export const FROM_BOOKMARKS = `
   FROM bookmarks b
-  LEFT JOIN bookmark_mutations m ON m.post_id = b.post_id`;
+  LEFT JOIN bookmark_mutations m ON m.post_id = b.post_id
+  LEFT JOIN bookmark_classifications cl ON cl.post_id = b.post_id
+  LEFT JOIN bookmark_corrections co ON co.post_id = b.post_id`;
 
 const UPSERT_BOOKMARK = `
   INSERT INTO bookmarks (
@@ -261,10 +368,64 @@ function loadQuoted(stored: string | null): QuotedPost | null {
     : quoted;
 }
 
+function labelsFromRow(row: BookmarkRow): BookmarkLabels {
+  return {
+    category: row.category,
+    format: row.format,
+    tags: JSON.parse(row.tags) as string[],
+    corrected: {
+      category: row.ownerCategory !== null,
+      format: row.ownerFormat !== null,
+      tags: row.ownerTags === 1,
+    },
+    classification:
+      row.classifierCategory === null ||
+      row.classifierFormat === null ||
+      row.taxonomyVersion === null ||
+      row.instructionsVersion === null ||
+      row.vocabularyVersion === null ||
+      row.classifiedAt === null
+        ? null
+        : {
+            category: row.classifierCategory,
+            format: row.classifierFormat,
+            tags: JSON.parse(row.classifierTags) as string[],
+            proposedTags: JSON.parse(row.proposedTags ?? "[]") as string[],
+            tooLittleText: row.tooLittleText === 1,
+            taxonomyVersion: row.taxonomyVersion,
+            instructionsVersion: row.instructionsVersion,
+            vocabularyVersion: row.vocabularyVersion,
+            model: row.classifierModel,
+            classifiedAt: new Date(row.classifiedAt),
+          },
+  };
+}
+
 /** Package-internal: a row of `SELECT_BOOKMARK_COLUMNS` as a `Bookmark`. */
 export function bookmarkFromRow(row: BookmarkRow): Bookmark {
+  // The label columns become `labels`; the rest of the row is the bookmark.
+  const {
+    category,
+    format,
+    tags,
+    ownerCategory,
+    ownerFormat,
+    ownerTags,
+    classifierCategory,
+    classifierFormat,
+    classifierTags,
+    proposedTags,
+    tooLittleText,
+    taxonomyVersion,
+    instructionsVersion,
+    vocabularyVersion,
+    classifierModel,
+    classifiedAt,
+    ...post
+  } = row;
   return {
-    ...row,
+    ...post,
+    labels: labelsFromRow(row),
     authorVerified: row.authorVerified === 1,
     postedAt: new Date(row.postedAt),
     media: JSON.parse(row.media) as PostMedia[],

@@ -32,6 +32,13 @@ function bookmark(overrides: Partial<Bookmark> = {}): Bookmark {
     card: null,
     article: null,
     quoted: null,
+    labels: {
+      category: null,
+      format: null,
+      tags: [],
+      corrected: { category: false, format: false, tags: false },
+      classification: null,
+    },
     likeCount: null,
     repostCount: null,
     replyCount: null,
@@ -200,6 +207,78 @@ test("the detail of a bookmark holds its whole text and says where its bookmark 
   });
 });
 
+const classification = {
+  category: "web-dev",
+  format: "guide",
+  tags: ["nextjs", "react"],
+  proposedTags: ["server-actions"],
+  tooLittleText: false,
+  taxonomyVersion: 1,
+  instructionsVersion: 1,
+  vocabularyVersion: 1,
+  model: "a-model",
+  classifiedAt: seen,
+};
+
+test("a row and a detail carry what the bookmark is filed under, by the ids the filters take", () => {
+  const filed = bookmark({
+    labels: {
+      category: "design",
+      format: "guide",
+      tags: ["animation", "react"],
+      corrected: { category: true, format: false, tags: true },
+      classification,
+    },
+  });
+
+  expect(bookmarkRow(filed)).toMatchObject({
+    category: "design",
+    format: "guide",
+    tags: ["animation", "react"],
+  });
+  expect(bookmarkDetail(filed)).toMatchObject({
+    category: "design",
+    format: "guide",
+    tags: ["animation", "react"],
+    labels_set_by_user: ["category", "tags"],
+  });
+  // What the classifier proposed is not on the bookmark, and is not returned as if it were.
+  expect(JSON.stringify(bookmarkDetail(filed))).not.toContain("server-actions");
+});
+
+test("a bookmark that has not been classified carries no labels, and one filed for want of text says so", () => {
+  const unfiled = bookmarkDetail(bookmark());
+  const thin = bookmarkDetail(
+    bookmark({
+      labels: {
+        category: "other",
+        format: "unclear",
+        tags: [],
+        corrected: { category: false, format: false, tags: false },
+        classification: {
+          ...classification,
+          category: "other",
+          format: "unclear",
+          tags: [],
+          proposedTags: [],
+          tooLittleText: true,
+        },
+      },
+    }),
+  );
+
+  for (const key of ["category", "format", "tags", "labels_set_by_user"]) {
+    expect(unfiled).not.toHaveProperty(key);
+  }
+  expect(bookmarkRow(bookmark())).not.toHaveProperty("category");
+  expect(thin).toMatchObject({
+    category: "other",
+    format: "unclear",
+    classifier_found_too_little_text: true,
+  });
+  expect(thin).not.toHaveProperty("tags");
+});
+
 test("a quoted post X withheld is returned as that", () => {
   expect(
     bookmarkDetail(
@@ -262,6 +341,9 @@ test("a post cannot end the document it is returned in, or pass for its notice",
 
 test("the notice says what the text is and that it is not an instruction", () => {
   expect(NOTICE).toMatch(/written by other people on X/);
+  expect(NOTICE).toMatch(
+    /the library's own labels \(`category`, `format`, `tags`\)/,
+  );
   expect(NOTICE).toMatch(/never an instruction to you/);
 });
 

@@ -30,6 +30,7 @@ export const {
   summariseMatches,
   summariseParsing,
   summariseRawCaptures,
+  summariseTagging,
 }: typeof import("@x-bookmarks/core") = await import(
   /* turbopackIgnore: true */ "@x-bookmarks/core"
 );

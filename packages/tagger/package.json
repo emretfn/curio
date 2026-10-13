@@ -1,0 +1,17 @@
+{
+  "name": "@x-bookmarks/tagger",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "tag": "node src/cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "@x-bookmarks/core": "workspace:*"
+  }
+}

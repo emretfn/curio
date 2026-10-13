@@ -15,6 +15,11 @@ export interface IngestDependencies {
   now?: () => number;
   /** Parses what has been stored. Replaced only by tests of what happens when it fails. */
   parse?: (store: Store) => unknown;
+  /**
+   * Called once a new capture is stored and parsed, with nothing to wait
+   * for: the route uses it to have the new bookmarks tagged a little later.
+   */
+  afterStored?: () => void;
 }
 
 /** How far ahead of this machine's clock a capture time may be. */
@@ -32,6 +37,9 @@ const EARLIEST_CAPTURE_MS = 1_000_000_000_000;
  * depends on the first alone. A response the parser does not understand is
  * recorded as such beside its capture, and is parsed again by a re-parse
  * once the parser has been fixed.
+ *
+ * Tagging the new bookmarks is a third step that is not taken here at all:
+ * `afterStored` asks for it, and it happens later, in `tagging.ts`.
  */
 export async function handleIngest(
   request: Request,
@@ -40,6 +48,7 @@ export async function handleIngest(
     token,
     now = Date.now,
     parse = parsePendingCaptures,
+    afterStored,
   }: IngestDependencies,
 ): Promise<Response> {
   const proved = await refuseUnlessExtension(request, token);
@@ -103,6 +112,18 @@ export async function handleIngest(
       "A stored capture could not be parsed. It is kept, and `pnpm reparse` will parse it.",
       error,
     );
+  }
+  // Tagging is only ever asked for here, never done and never waited for:
+  // it needs another host, which may be out of reach, and the answer to the
+  // extension must not depend on that. Nor on this call itself.
+  if (inserted) {
+    try {
+      afterStored?.();
+    } catch (error) {
+      console.error(
+        `What follows a stored capture could not be started (${error instanceof Error ? error.name : "unknown error"}). The capture is stored and parsed.`,
+      );
+    }
   }
   return answer(inserted ? 201 : 200, {
     status: inserted ? "stored" : "duplicate",

@@ -61,6 +61,14 @@ test("a new bookmark is first seen when its capture was received, not when it wa
     card: null,
     article: null,
     quoted: null,
+    // Filed under nothing until the classifier or the owner says.
+    labels: {
+      category: null,
+      format: null,
+      tags: [],
+      corrected: { category: false, format: false, tags: false },
+      classification: null,
+    },
     likeCount: null,
     repostCount: null,
     replyCount: null,
