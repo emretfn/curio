@@ -15,6 +15,28 @@ export {
   getBookmark,
   upsertBookmark,
 } from "./bookmarks.ts";
+export {
+  DIGEST_LIMITS,
+  DIGEST_RUN_STALE_MS,
+  type DigestRun,
+  DigestRunInProgress,
+  DigestRunNotOpen,
+  type DigestRunOutcome,
+  type DigestRunResult,
+  type DigestText,
+  type DigestTheme,
+  finishDigestRun,
+  getDigest,
+  listDigestRuns,
+  listWeeks,
+  MIN_DIGEST_BOOKMARKS,
+  type NewDigestRun,
+  startDigestRun,
+  summariseWeek,
+  type WeekEntry,
+  type WeekSummary,
+  type WrittenDigest,
+} from "./digests.ts";
 export { visibleText } from "./hidden-text.ts";
 export {
   type Correction,
@@ -154,6 +176,16 @@ export {
   type Vocabulary,
   type VocabularyChange,
 } from "./vocabulary.ts";
+export {
+  lastDayOf,
+  latestWeekEnded,
+  WEEK_ENDS_SUNDAY_AT_HOUR,
+  type Week,
+  weekAfter,
+  weekBefore,
+  weekFromKey,
+  weekOf,
+} from "./weeks.ts";
 export {
   assertNotXOwnedUrl,
   isXOwnedHost,
