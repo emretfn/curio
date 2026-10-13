@@ -177,6 +177,14 @@ export interface Claude {
   /** Sends one request and returns the model's message. Throws a `ClaudeFailure`. */
   classify(request: ClaudeRequest): Promise<ClaudeMessage>;
   /**
+   * The most attempts one call to `classify` puts on the wire: the first,
+   * and each time the client tries again after a failure that may pass.
+   * Any of them can be one that got no answer and was charged all the same
+   * (`lostRequests`), so a caller with a spend cap sets aside the most a
+   * request can cost this many times over before it calls.
+   */
+  attemptsPerRequest: number;
+  /**
    * Sends one request whose answer is long, the weekly digest's, and
    * returns the model's message. It is given minutes and not a minute, and
    * it is tried once: an attempt that times out may have been charged, so
@@ -260,6 +268,7 @@ export function createClaude(options: {
       throw error;
     }
   };
+  const retries = options.retries ?? RETRIES;
   const client = new Anthropic({
     apiKey: options.apiKey,
     authToken: null,
@@ -267,10 +276,11 @@ export function createClaude(options: {
     fetch: counting,
     logLevel: "off",
     timeout: TIMEOUT_MS,
-    maxRetries: options.retries ?? RETRIES,
+    maxRetries: retries,
   });
   return {
     classify: (request) => asking(() => client.messages.create(request)),
+    attemptsPerRequest: retries + 1,
     write: (request) =>
       asking(() =>
         client.messages.create(request, {

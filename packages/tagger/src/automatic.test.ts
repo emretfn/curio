@@ -10,6 +10,7 @@ import {
   recordTaggingProgress,
   startTaggingRun,
   summariseTagging,
+  summariseTaggingSpend,
 } from "@x-bookmarks/core";
 import { expect, test, vi } from "vitest";
 import { type Claude, createClaude } from "./anthropic.ts";
@@ -285,6 +286,67 @@ test.each([
   },
 );
 
+test.each([
+  [
+    "outside a test runner",
+    { VITEST: undefined, NODE_TEST_CONTEXT: undefined },
+    /No test runner started this process/,
+  ],
+  [
+    "with no data directory of its own, where the repo's .env would be read",
+    { X_BOOKMARKS_DATA_DIR: undefined },
+    /X_BOOKMARKS_DATA_DIR is not set/,
+  ],
+  [
+    "on a library outside that data directory",
+    { X_BOOKMARKS_DATA_DIR: "/somewhere/else" },
+    /must be the one in X_BOOKMARKS_DATA_DIR/,
+  ],
+])(
+  "the script that lists what a pass loads refuses to run %s, before it opens anything",
+  (_, changes, why) => {
+    const lib = library(3);
+    // Everything a real pass would need, so that only the refusal stops it.
+    writeKey(lib.directory, { appTagging: true });
+    lib.store.close();
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      X_BOOKMARKS_DATA_DIR: lib.directory,
+      ...changes,
+    };
+    for (const [name, value] of Object.entries(changes)) {
+      if (value === undefined) delete env[name];
+    }
+
+    const { status, stdout, stderr } = spawnSync(
+      process.execPath,
+      [join(import.meta.dirname, "testing/what-a-pass-loads.ts"), lib.path],
+      { encoding: "utf8", env },
+    );
+
+    expect(status).toBe(1);
+    expect(stderr).toMatch(why);
+    expect(stdout).toBe("");
+  },
+);
+
+test("the script that lists what a pass loads makes no client, whatever its .env holds: with a key and the app's tagging on, it stops there", () => {
+  const lib = library(3);
+  writeKey(lib.directory, { appTagging: true });
+  lib.store.close();
+
+  const { stdout } = spawnSync(
+    process.execPath,
+    [join(import.meta.dirname, "testing/what-a-pass-loads.ts"), lib.path],
+    {
+      encoding: "utf8",
+      env: { ...process.env, X_BOOKMARKS_DATA_DIR: lib.directory },
+    },
+  );
+
+  expect(JSON.parse(stdout)).toMatchObject({ status: "error" });
+});
+
 test("new bookmarks are classified by a pass, one request at a time, with the key from its file", async () => {
   const lib = library(5);
   writeKey(lib.directory, { appTagging: true });
@@ -521,6 +583,112 @@ test("a pass spends within its own cap, and the app's passes within a day's", as
   const later = await pass(() => new Date(now.getTime() + 25 * 60 * 60 * 1000));
 
   expect(later).toMatchObject({ status: "ran", reports: [{ classified: 1 }] });
+});
+
+test("attempts that brought no answer use up the app's day as what they may have cost, though no token was counted", async () => {
+  const lib = library(4);
+  writeKey(lib.directory, { appTagging: true });
+  // An API that takes every request and never answers.
+  const { api, pass } = setup(lib, { unreachable: true });
+  const now = new Date("2026-10-13T12:00:00.000Z");
+
+  const lost = await pass(() => now);
+
+  const [report] = lost.reports;
+  expect(report).toMatchObject({
+    status: "failed",
+    failure: { kind: "unreachable" },
+    costUsd: 0,
+    unanswered: 1,
+  });
+  expect(report?.heldUsd).toBeGreaterThan(0);
+  expect(
+    summariseTaggingSpend(lib.store, {
+      startedBy: "app",
+      since: new Date(now.getTime() - 60_000),
+    }),
+  ).toEqual({ runs: 1, costUsd: 0, heldUsd: report?.heldUsd });
+
+  // Passes like it through the day: each holds a little, none reports a
+  // cost. Here, one that held the whole of the day's allowance.
+  const held = startTaggingRun(lib.store, {
+    startedBy: "app",
+    mode: "untagged",
+    transport: "direct",
+    model: "a-model",
+    instructionsVersion: 1,
+    selected: 4,
+    capUsd: PASS_CAP_USD,
+    now,
+  });
+  recordTaggingProgress(lib.store, held.id, {
+    inputTokens: 0,
+    cacheWriteTokens: 0,
+    cacheReadTokens: 0,
+    outputTokens: 0,
+    classified: 0,
+    failed: 0,
+    costUsd: 0,
+    unansweredRequests: 150,
+    heldUsd: DAILY_CAP_USD,
+    now,
+  });
+  finishTaggingRun(lib.store, held.id, { outcome: "failed", now });
+  api.options.unreachable = false;
+  const sent = api.sent.length;
+
+  const capped = await pass(() => new Date(now.getTime() + 60 * 60 * 1000));
+
+  expect(capped).toMatchObject({ status: "daily-cap", waiting: 4 });
+  expect(api.sent).toHaveLength(sent);
+  // A day later the allowance is there again.
+  expect(
+    await pass(() => new Date(now.getTime() + 25 * 60 * 60 * 1000)),
+  ).toMatchObject({ status: "ran", reports: [{ classified: 4 }] });
+});
+
+test("the app's day is summed over every run of the day, however many runs there were since", async () => {
+  const lib = library(2);
+  writeKey(lib.directory, { appTagging: true });
+  const { api, pass } = setup(lib);
+  const now = new Date("2026-10-13T12:00:00.000Z");
+  const record = (startedBy: "owner" | "app", costUsd: number, at: Date) => {
+    const run = startTaggingRun(lib.store, {
+      startedBy,
+      mode: "untagged",
+      transport: "direct",
+      model: "a-model",
+      instructionsVersion: 1,
+      selected: 1,
+      capUsd: 2,
+      now: at,
+    });
+    recordTaggingProgress(lib.store, run.id, {
+      inputTokens: 0,
+      cacheWriteTokens: 0,
+      cacheReadTokens: 0,
+      outputTokens: 0,
+      classified: 0,
+      failed: 0,
+      costUsd,
+      now: at,
+    });
+    finishTaggingRun(lib.store, run.id, { outcome: "completed", now: at });
+  };
+  // The app spent its day's allowance this morning, and more than a
+  // hundred runs have been made since: the owner's, and the app's own
+  // passes that found nothing to pay for.
+  record("app", DAILY_CAP_USD, new Date(now.getTime() - 6 * 60 * 60 * 1000));
+  for (let n = 0; n < 120; n += 1) {
+    record(
+      n % 2 === 0 ? "owner" : "app",
+      0,
+      new Date(now.getTime() - 60 * 60 * 1000 + n * 1000),
+    );
+  }
+
+  expect(await pass(() => now)).toMatchObject({ status: "daily-cap" });
+  expect(api.sent).toEqual([]);
 });
 
 test("what the owner's runs spend does not count against the app's day", async () => {

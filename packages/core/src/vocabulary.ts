@@ -329,7 +329,14 @@ export function addTag(
  * vocabulary already holds, and then the proposal becomes another way of
  * writing that tag. `variants` are other proposals for the same subject,
  * accepted with it. Every bookmark any of them was proposed for gets the
- * tag, without the classifier being asked again.
+ * tag, without the classifier being asked again, however many tags it has:
+ * the limit on tags is on one answer of the classifier, and this is the
+ * owner's decision.
+ *
+ * A name the owner retired is refused, as `renameTag` refuses it. Taking it
+ * would bring the retired tag back on every bookmark it was retired from,
+ * which is more than accepting a proposal says; `addTag` does that, when it
+ * is what the owner wants.
  */
 export function acceptTagProposal(
   store: Store,
@@ -340,9 +347,15 @@ export function acceptTagProposal(
   const at = timeOf(options.now);
   const accept = db.transaction((): VocabularyChange => {
     const proposed = [proposal, ...(options.variants ?? [])];
-    const target = resolveIn(db, options.as ?? proposal);
+    const name = options.as ?? proposal;
+    if (standingOf(db, foldTagText(name)).is === "retired") {
+      throw new RangeError(
+        `"${name}" is a tag that was retired, or a name for one. Accepting a proposal under it would bring the tag back on every bookmark it was retired from. Bring it back with addTag first, or choose another name.`,
+      );
+    }
+    const target = resolveIn(db, name);
     if (target === undefined) {
-      return add(db, nameOf(options.as ?? proposal), proposed, at);
+      return add(db, nameOf(name), proposed, at);
     }
     // The name is one the vocabulary knows: the proposals join that tag.
     let bookmarks = 0;
@@ -350,9 +363,12 @@ export function acceptTagProposal(
     for (const text of proposed) {
       const alias = foldTagText(text);
       if (alias === "" || alias === target) continue;
-      if (standingOf(db, alias).is === "tag") {
+      const taken = standingOf(db, alias);
+      if (taken.is === "tag" || taken.is === "retired") {
         throw new RangeError(
-          `"${text}" is a tag itself. Merge it into "${target}" with mergeTags.`,
+          taken.is === "tag"
+            ? `"${text}" is a tag itself. Merge it into "${target}" with mergeTags.`
+            : `"${text}" is a tag that was retired, or a name for one, so it cannot be another way of writing "${target}".`,
         );
       }
       bookmarks += pointAlias(db, alias, target, at);
@@ -560,10 +576,18 @@ export function renameTag(
 
 /**
  * Declares one tag another name for a second. The bookmarks that had the
- * first have the second from then on; what the owner said of the first on a
- * bookmark, added or removed, is said of the second unless the owner had
- * already spoken on it there. The first leaves the vocabulary and stays as
- * another way of writing the second, with everything that led to it.
+ * first have the second from then on. The first leaves the vocabulary and
+ * stays as another way of writing the second, with everything that led to
+ * it.
+ *
+ * What the owner said of the first tag on a bookmark follows it only as far
+ * as the owner meant it. A tag the owner added there is added under the
+ * second name. A tag the owner took off there stays off where the second
+ * would otherwise arrive on that bookmark through this merge alone: the
+ * classifier gave it the first and not the second. Where the bookmark has
+ * the second in its own right, the owner said nothing about it and it
+ * stays. In both cases the owner's own word on the second tag, where there
+ * is one, stands as it was.
  */
 export function mergeTags(
   store: Store,
@@ -580,14 +604,22 @@ export function mergeTags(
       throw new RangeError(`"${from}" and "${into}" are the same tag.`);
     }
     const bookmarks = having(db, gone);
+    // Before the classifier's rows move, while they still say which of the
+    // two tags each bookmark was given.
+    db.prepare(
+      `INSERT OR IGNORE INTO bookmark_tag_corrections (post_id, tag, action, corrected_at)
+       SELECT x.post_id, @kept, x.action, x.corrected_at
+       FROM bookmark_tag_corrections x
+       WHERE x.tag = @gone AND (
+         x.action = 'add'
+         OR (EXISTS (SELECT 1 FROM bookmark_tags t
+                     WHERE t.post_id = x.post_id AND t.tag = @gone)
+             AND NOT EXISTS (SELECT 1 FROM bookmark_tags t
+                             WHERE t.post_id = x.post_id AND t.tag = @kept)))`,
+    ).run({ gone, kept });
     db.prepare(
       `INSERT OR IGNORE INTO bookmark_tags (post_id, tag)
        SELECT post_id, @kept FROM bookmark_tags WHERE tag = @gone`,
-    ).run({ gone, kept });
-    db.prepare(
-      `INSERT OR IGNORE INTO bookmark_tag_corrections (post_id, tag, action, corrected_at)
-       SELECT post_id, @kept, action, corrected_at
-       FROM bookmark_tag_corrections WHERE tag = @gone`,
     ).run({ gone, kept });
     for (const table of ["bookmark_tags", "bookmark_tag_corrections"]) {
       db.prepare(`DELETE FROM ${table} WHERE tag = ?`).run(gone);

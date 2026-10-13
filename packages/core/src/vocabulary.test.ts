@@ -402,6 +402,142 @@ test("one tag declared another name for a second: its bookmarks have the second,
   expect(() => mergeTags(store, "cursor", "codex")).toThrow(RangeError);
 });
 
+test("a merge carries the owner's removal of the first tag only onto bookmarks the second would reach through the merge alone", () => {
+  const store = library(6);
+  // 1: the classifier gave both, and the owner took the first off.
+  classify(store, 1, { tags: ["nextjs", "react"] });
+  correctBookmark(store, postId(1), { removeTags: ["nextjs"] });
+  // 2: the classifier gave only the first, and the owner took it off.
+  classify(store, 2, { tags: ["nextjs"] });
+  correctBookmark(store, postId(2), { removeTags: ["nextjs"] });
+  // 3: the same as 1, and the owner had also taken the second off.
+  classify(store, 3, { tags: ["nextjs", "react"] });
+  correctBookmark(store, postId(3), { removeTags: ["nextjs", "react"] });
+  // 4: the owner took the first off and put the second on by hand.
+  classify(store, 4, { tags: ["nextjs"] });
+  correctBookmark(store, postId(4), {
+    removeTags: ["nextjs"],
+    addTags: ["react"],
+  });
+  // 5: the owner put the first on a bookmark the classifier gave neither.
+  classify(store, 5);
+  correctBookmark(store, postId(5), { addTags: ["nextjs"] });
+  // 6: the owner took the first off a bookmark the classifier gave neither.
+  classify(store, 6);
+  correctBookmark(store, postId(6), { removeTags: ["nextjs"] });
+
+  mergeTags(store, "nextjs", "react");
+
+  // The owner never spoke of the second tag there, and the classifier gave it.
+  expect(tagsOf(store, 1)).toEqual(["react"]);
+  // Only the merge would have brought it: the owner's "not this" follows.
+  expect(tagsOf(store, 2)).toEqual([]);
+  // The owner's own word on the second tag stands, either way.
+  expect(tagsOf(store, 3)).toEqual([]);
+  expect(tagsOf(store, 4)).toEqual(["react"]);
+  expect(tagsOf(store, 5)).toEqual(["react"]);
+  expect(tagsOf(store, 6)).toEqual([]);
+  // What is left of the owner's word names the second tag and never the first.
+  expect(
+    connectionOf(store)
+      .prepare(
+        "SELECT post_id AS post, tag, action FROM bookmark_tag_corrections ORDER BY post_id",
+      )
+      .all(),
+  ).toEqual([
+    { post: postId(2), tag: "react", action: "remove" },
+    { post: postId(3), tag: "react", action: "remove" },
+    { post: postId(4), tag: "react", action: "add" },
+    { post: postId(5), tag: "react", action: "add" },
+  ]);
+  // A later answer that gives the second tag reaches 6, where nothing of
+  // the owner's stands against it, and not 2.
+  classify(store, 6, { tags: ["react"] });
+  classify(store, 2, { tags: ["react"] });
+  expect(tagsOf(store, 6)).toEqual(["react"]);
+  expect(tagsOf(store, 2)).toEqual([]);
+});
+
+test("a proposal is not accepted under the name of a retired tag, which would bring that tag back where it was retired", () => {
+  const store = library(4);
+  classify(store, 1, { tags: ["react"] });
+  classify(store, 2, { tags: ["react"] });
+  classify(store, 3, { proposedTags: ["preact"] });
+  classify(store, 4, { proposedTags: ["preact-signals"] });
+  addTagAlias(store, "reactjs", "react");
+  retireTag(store, "react");
+  const stood = {
+    vocabulary: getVocabulary(store),
+    history: history(store),
+    retired: listTags(store, { includeRetired: true }).filter(
+      ({ retiredAt }) => retiredAt !== null,
+    ),
+  };
+
+  // As the retired tag, as another name the retired tag had, and with a
+  // retired tag among the near-duplicates accepted alongside.
+  expect(() => acceptTagProposal(store, "preact", { as: "react" })).toThrow(
+    /"react" is a tag that was retired.*Bring it back with addTag first/,
+  );
+  expect(() => acceptTagProposal(store, "preact", { as: "ReactJS" })).toThrow(
+    /was retired/,
+  );
+  expect(() =>
+    acceptTagProposal(store, "preact", { variants: ["react"] }),
+  ).toThrow(RangeError);
+  expect(() =>
+    acceptTagProposal(store, "preact", { as: "nextjs", variants: ["react"] }),
+  ).toThrow(/"react" is a tag that was retired/);
+
+  // Nothing came back, nothing was accepted, and nothing else moved.
+  expect([1, 2, 3, 4].map((n) => tagsOf(store, n))).toEqual([[], [], [], []]);
+  expect(proposalsOf(store, 3)).toEqual(["preact"]);
+  expect({
+    vocabulary: getVocabulary(store),
+    history: history(store),
+    retired: listTags(store, { includeRetired: true }).filter(
+      ({ retiredAt }) => retiredAt !== null,
+    ),
+  }).toEqual(stood);
+
+  // Bringing the tag back is its own decision, and then the name is free.
+  addTag(store, "react");
+  expect(acceptTagProposal(store, "preact", { as: "react" })).toMatchObject({
+    tag: "react",
+    bookmarks: 1,
+  });
+  expect([1, 2, 3, 4].map((n) => tagsOf(store, n))).toEqual([
+    ["react"],
+    ["react"],
+    ["react"],
+    [],
+  ]);
+});
+
+test("an accepted proposal reaches every bookmark it was proposed for, one that already has a full answer's tags included", () => {
+  const store = library(2);
+  classify(store, 1, {
+    tags: ["auth", "nextjs", "react", "tailwind"],
+    proposedTags: ["zustand"],
+  });
+  classify(store, 2, { proposedTags: ["zustand"] });
+
+  expect(listTagProposals(store).proposals[0]).toMatchObject({
+    proposal: "zustand",
+    bookmarks: 2,
+  });
+  // As many as the list said, not one fewer.
+  expect(acceptTagProposal(store, "zustand")).toMatchObject({ bookmarks: 2 });
+  expect(tagsOf(store, 1)).toEqual([
+    "auth",
+    "nextjs",
+    "react",
+    "tailwind",
+    "zustand",
+  ]);
+  expect(tagsOf(store, 2)).toEqual(["zustand"]);
+});
+
 test("every change to what the classifier is told moves the version, and each is in the history", () => {
   const store = library(0);
 

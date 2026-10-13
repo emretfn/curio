@@ -6,13 +6,19 @@
 import {
   addTag,
   correctBookmark,
+  finishTaggingRun,
   getOpenTaggingRun,
+  getTaggingRun,
   getVocabulary,
+  insertRawCapture,
+  listClassificationCandidates,
   listTaggingRuns,
   listTagProposals,
   renameTag,
   retireTag,
+  startTaggingRun,
   summariseTagging,
+  TAGGING_RUN_STALE_MS,
   TAXONOMY,
 } from "@x-bookmarks/core";
 import { expect, test } from "vitest";
@@ -297,6 +303,35 @@ test("once a run has measured what a bookmark costs, a plan says what the rest w
   expect(
     planTagging(lib.store, { mode: "untagged", transport: "batch" }).measured,
   ).toBeNull();
+});
+
+test("the measured rate is what a bookmark that was sent cost: those filed without a request are not in it", async () => {
+  const lib = library(10);
+  // Thirty with nothing worth sending, which the run files for nothing.
+  for (let n = 11; n <= 40; n += 1) lib.add(n, { text: "" });
+  const { api, run } = setup();
+  const report = await runTagging(lib.store, run());
+  for (let n = 41; n <= 60; n += 1) lib.add(n);
+
+  const plan = planTagging(lib.store, { mode: "untagged" });
+
+  expect(report).toMatchObject({ classified: 40, filedWithoutRequest: 30 });
+  expect(report.run).toMatchObject({ classified: 40, filedWithoutRequest: 30 });
+  expect(api.sent).toHaveLength(10);
+  expect(plan.toSend).toBe(20);
+  // Over the ten that were asked about, not the forty that were dealt with.
+  expect(plan.measured?.usdPerBookmark).toBeCloseTo(report.costUsd / 10, 12);
+  expect(plan.measured?.costUsd).toBeCloseTo((report.costUsd / 10) * 20, 12);
+});
+
+test("a run that asked about fewer than ten bookmarks has measured nothing, however many it filed without asking", async () => {
+  const lib = library(5);
+  for (let n = 6; n <= 40; n += 1) lib.add(n, { text: "" });
+  const { run } = setup();
+  await runTagging(lib.store, run());
+  lib.add(41);
+
+  expect(planTagging(lib.store, { mode: "untagged" }).measured).toBeNull();
 });
 
 test("a second run finds nothing to do and sends nothing", async () => {
@@ -704,9 +739,11 @@ test("an attempt that brought no answer is held against the cap, since it may ha
     sizeOf({ text: textOf(1), language: "en" }, asking(lib)),
     "direct",
   );
-  // Room for all six at what they really cost, and for two and a half at
-  // the most one could: the two lost attempts use two of those up.
-  const capUsd = each * 2.5;
+  // The client may make three attempts at a request, and room for all
+  // three is set aside before it goes. Four and a half attempts' worth is
+  // room for one request at a time, and each attempt that is lost stays
+  // held: after two of them there is no room for three more.
+  const capUsd = each * 4.5;
 
   const report = await runTagging(lib.store, {
     claude,
@@ -722,9 +759,11 @@ test("an attempt that brought no answer is held against the cap, since it may ha
     left: 3,
   });
   expect(report.costUsd + report.unanswered * each).toBeLessThanOrEqual(capUsd);
+  expect(report.heldUsd).toBeCloseTo(2 * each, 12);
   expect(report.run).toMatchObject({ unansweredRequests: 2, classified: 3 });
+  expect(report.run?.heldUsd).toBeCloseTo(2 * each, 12);
   expect(describeReport(report)).toMatch(
-    /2 attempts went out and brought no answer back/,
+    /2 attempts went out and brought no answer back.*\$0\.\d+ in all/,
   );
 
   // The same six with nothing lost fit the same cap with room to spare.
@@ -735,6 +774,67 @@ test("an attempt that brought no answer is held against the cap, since it may ha
     classified: 6,
     unanswered: 0,
   });
+});
+
+test("a cap with no room for every attempt the client may make at one request sends none", async () => {
+  const lib = library(3);
+  // A sender that never answers, and a client that tries five times.
+  const api = fakeApi({ unreachable: true });
+  const claude = createClaude({ apiKey: FAKE_KEY, send: api.send, retries: 4 });
+  const each = mostOf(
+    sizeOf({ text: textOf(1), language: "en" }, asking(lib)),
+    "direct",
+  );
+
+  const report = await runTagging(lib.store, {
+    claude,
+    startedBy: "owner",
+    mode: "untagged",
+    // Room for one answer, and not for five attempts that may each be charged.
+    capUsd: each * 1.5,
+  });
+
+  expect(claude.attemptsPerRequest).toBe(5);
+  expect(report).toMatchObject({
+    status: "stopped-at-cap",
+    classified: 0,
+    unanswered: 0,
+    heldUsd: 0,
+  });
+  expect(api.sent).toEqual([]);
+});
+
+test("with every request in flight lost at every attempt, what went out stays under the cap", async () => {
+  const lib = library(9);
+  // The first request is answered; after it nothing is.
+  const api = fakeApi({ unreachable: (attempt) => attempt > 0 });
+  const claude = createClaude({ apiKey: FAKE_KEY, send: api.send, retries: 1 });
+  const each = mostOf(
+    sizeOf({ text: textOf(1), language: "en" }, asking(lib)),
+    "direct",
+  );
+  // Room for four and a half attempts: two requests of two attempts each
+  // may be in flight, and a third may not join them.
+  const capUsd = each * 4.5;
+
+  const report = await runTagging(lib.store, {
+    claude,
+    startedBy: "owner",
+    mode: "untagged",
+    capUsd,
+  });
+
+  const lostAttempts = api.sent.length - 1;
+  expect(report).toMatchObject({
+    status: "failed",
+    failure: { kind: "unreachable" },
+    classified: 1,
+    unanswered: lostAttempts,
+  });
+  expect(lostAttempts).toBe(4);
+  // Had each of them been charged all it could be, the cap would have held.
+  expect(report.costUsd + lostAttempts * each).toBeLessThanOrEqual(capUsd);
+  expect(report.run?.heldUsd).toBeCloseTo(lostAttempts * each, 12);
 });
 
 test("a batch that could not be submitted says that one may exist all the same", async () => {
@@ -916,6 +1016,84 @@ test("two processes that take up the same batch both finish, and the run is clos
     classified: 100,
     unclassified: 0,
   });
+});
+
+test("a batch taken up by two processes at once counts each bookmark's failure once", async () => {
+  const lib = library(MANY);
+  const { run } = batched({
+    batchPolls: 1,
+    reply: (input) =>
+      numberOf(input) === 7
+        ? { refuse: true }
+        : numberOf(input) === 8
+          ? { text: "not an answer" }
+          : numberOf(input) === 9
+            ? { status: 400, type: "invalid_request_error" }
+            : answer(),
+  });
+  await runTagging(lib.store, run({ batchWaitMs: 0 }));
+
+  // The owner's command still waiting on it, and the app's pass.
+  const [one, two] = await Promise.all([
+    runTagging(lib.store, run()),
+    runTagging(lib.store, run({ startedBy: "app" })),
+  ]);
+
+  for (const report of [one, two]) {
+    expect(report).toMatchObject({
+      status: "completed",
+      resumed: true,
+      classified: 97,
+      failed: 3,
+    });
+  }
+  expect(listTaggingRuns(lib.store)).toMatchObject([
+    { outcome: "completed", classified: 97, failed: 3 },
+  ]);
+  // Failed once each, so each is asked about once more: counted twice,
+  // they would have used up both of their attempts in one batch.
+  const waiting = listClassificationCandidates(lib.store, {
+    which: "unclassified",
+  });
+  expect(waiting.bookmarks.map(({ postId: id }) => id).toSorted()).toEqual([
+    postId(7),
+    postId(8),
+    postId(9),
+  ]);
+  expect(summariseTagging(lib.store)).toMatchObject({
+    classified: 97,
+    unclassified: 3,
+    failed: 3,
+  });
+});
+
+test("a batch's results are stored whole or not at all: a collection that breaks leaves no failure counted", async () => {
+  const lib = library(MANY);
+  const { run } = batched({
+    batchPolls: 1,
+    reply: (input) => (numberOf(input) <= 3 ? { refuse: true } : answer()),
+  });
+  await runTagging(lib.store, run({ batchWaitMs: 0 }));
+  // The clock breaks partway through the storing, as a process might die.
+  let asked = 0;
+  const broken = () => {
+    asked += 1;
+    if (asked > 60) throw new Error("gone");
+    return new Date();
+  };
+
+  await expect(runTagging(lib.store, run({ now: broken }))).rejects.toThrow(
+    "gone",
+  );
+
+  // Nothing of the half-stored results is in the library.
+  expect(summariseTagging(lib.store)).toMatchObject({
+    classified: 0,
+    failed: 0,
+  });
+  expect(
+    listClassificationCandidates(lib.store, { which: "unclassified" }).total,
+  ).toBe(MANY);
 });
 
 test("while a batch is out, no other run starts and nothing is sent twice", async () => {
@@ -1258,6 +1436,69 @@ test("a new-tags run asks only the bookmarks that mention the tag, and adds that
   });
 });
 
+test("a new-tags run files nothing: a bookmark whose text has become too little to send is left exactly as it is", async () => {
+  const lib = await classifiedLibrary();
+  correctBookmark(lib.store, postId(1), { addTags: ["nextjs"] });
+  // A later capture holds the first post with almost nothing in it.
+  const later = insertRawCapture(lib.store, {
+    source: "x-web-client",
+    operation: "Bookmarks",
+    payload: "{ }",
+    receivedAt: new Date("2026-10-06T09:00:00.000Z"),
+  }).id;
+  lib.add(1, { text: "", captureId: later });
+  addTag(lib.store, "drizzle");
+  const stood = lib.labels(1);
+  const { api, run } = setup({ reply: () => answer({ tags: ["drizzle"] }) });
+
+  const plan = planTagging(lib.store, {
+    mode: "new-tags",
+    everyBookmark: true,
+  });
+  const report = await runTagging(
+    lib.store,
+    run({ mode: "new-tags", everyBookmark: true }),
+  );
+
+  expect(plan).toMatchObject({ selected: 4, toSend: 3, tooLittleToSend: 1 });
+  expect(describePlan(plan)).toMatch(
+    /Too little text to send\s+1 {2}\(left exactly as they are, without a request\)/,
+  );
+  expect(report).toMatchObject({
+    status: "completed",
+    selected: 4,
+    classified: 4,
+    filedWithoutRequest: 1,
+    tooLittleText: 0,
+    categories: {},
+    tags: { drizzle: 3 },
+  });
+  expect(api.sent).toHaveLength(3);
+  // Where it was filed, its tags, the owner's word: all as they were. Only
+  // the vocabulary it counts as asked about has moved.
+  expect(lib.labels(1)).toEqual({
+    ...stood,
+    classification: {
+      ...stood.classification,
+      vocabularyVersion: getVocabulary(lib.store).version,
+    },
+  });
+  expect(lib.labels(1)).toMatchObject({
+    category: "tools",
+    format: "discussion",
+    tags: ["nextjs", "react"],
+    tooLittleText: false,
+  });
+  expect(describeReport(report)).toMatch(
+    /left as they are, too little text to ask about\s+1/,
+  );
+  // It is not taken again.
+  expect(report.summary.behindVocabulary).toBe(0);
+  expect(
+    await runTagging(lib.store, run({ mode: "new-tags", everyBookmark: true })),
+  ).toMatchObject({ status: "nothing-to-do" });
+});
+
 test("asked for every bookmark, a new-tags run asks those that do not mention the tag too", async () => {
   const lib = await classifiedLibrary();
   addTag(lib.store, "drizzle");
@@ -1305,6 +1546,142 @@ test("a rate limit that outlasts the client's retries is waited out, and the run
   expect(waited.length).toBeGreaterThanOrEqual(1);
   expect(new Set(waited)).toEqual(new Set([60_000]));
   expect(api.sent).toHaveLength(7);
+});
+
+test("requests in flight that meet the rate limit together wait once between them: a run gives up after eight waits, not two", async () => {
+  const lib = library(12);
+  let asked = 0;
+  const { api, run } = setup({
+    reply: () => {
+      asked += 1;
+      return asked === 1 ? answer() : { status: 429, type: "rate_limit_error" };
+    },
+  });
+  const waited: number[] = [];
+
+  const report = await runTagging(
+    lib.store,
+    run({ wait: async (ms) => void waited.push(ms) }),
+  );
+
+  expect(report).toMatchObject({
+    status: "failed",
+    failure: { kind: "rate-limited" },
+    classified: 1,
+    left: 11,
+  });
+  // Eight minutes of waiting, each wait followed by four requests side by
+  // side, and a ninth four that end it.
+  expect(waited).toEqual(Array.from({ length: 8 }, () => 60_000));
+  expect(api.sent).toHaveLength(1 + 4 * 9);
+});
+
+test("an answer between waits starts the count of waits again", async () => {
+  const lib = library(8);
+  let asked = 0;
+  const { run } = setup({
+    // Limited for six rounds, one answer, limited for six more, then free.
+    reply: () => {
+      asked += 1;
+      const limited = (asked > 1 && asked <= 25) || (asked > 26 && asked <= 50);
+      return limited ? { status: 429, type: "rate_limit_error" } : answer();
+    },
+  });
+  const waited: number[] = [];
+
+  const report = await runTagging(
+    lib.store,
+    run({ wait: async (ms) => void waited.push(ms) }),
+  );
+
+  // More than eight waits in all, and never eight in a row.
+  expect(report).toMatchObject({ status: "completed", classified: 8 });
+  expect(waited.length).toBeGreaterThan(8);
+});
+
+test("a run waiting out the rate limit says it is alive, and is not taken for dead by the next", async () => {
+  const lib = library(5);
+  const start = Date.parse("2026-10-13T10:00:00.000Z");
+  let clock = start;
+  const now = () => new Date(clock);
+  const elapsed = () => clock - start;
+  const { run } = setup({
+    // Each request takes twenty seconds to be refused, for a quarter of an
+    // hour; the limit lifts after that.
+    reply: () => {
+      if (elapsed() > 15 * 60_000) return answer();
+      clock += 20_000;
+      return { status: 429, type: "rate_limit_error" };
+    },
+  });
+  let other: Awaited<ReturnType<typeof runTagging>> | undefined;
+
+  const report = await runTagging(
+    lib.store,
+    run({
+      now,
+      wait: async (ms) => {
+        clock += ms;
+        // Past the time a silent run is given: the app's pass comes by.
+        if (other === undefined && elapsed() > TAGGING_RUN_STALE_MS + 60_000) {
+          other = await runTagging(lib.store, run({ startedBy: "app", now }));
+        }
+      },
+    }),
+  );
+
+  expect(elapsed()).toBeGreaterThan(TAGGING_RUN_STALE_MS);
+  expect(other).toMatchObject({ status: "busy", classified: 0 });
+  expect(report).toMatchObject({ status: "completed", classified: 5 });
+  expect(listTaggingRuns(lib.store)).toMatchObject([
+    { startedBy: "owner", outcome: "completed", classified: 5 },
+  ]);
+});
+
+test("a run that finds its record closed under it stops sending and says so, without throwing", async () => {
+  const lib = library(20);
+  let asked = 0;
+  const { api, run } = setup({
+    reply: () => {
+      asked += 1;
+      if (asked === 3) {
+        // As if this process had slept with its computer: another run
+        // finds this one silent for too long, and takes its place.
+        const late = new Date(Date.now() + TAGGING_RUN_STALE_MS + 60_000);
+        const other = startTaggingRun(lib.store, {
+          startedBy: "app",
+          mode: "untagged",
+          transport: "direct",
+          model: MODEL,
+          instructionsVersion: INSTRUCTIONS_VERSION,
+          selected: 1,
+          capUsd: 0.1,
+          now: late,
+        });
+        finishTaggingRun(lib.store, other.id, {
+          outcome: "completed",
+          now: late,
+        });
+      }
+      return answer();
+    },
+  });
+
+  const report = await runTagging(lib.store, run());
+
+  expect(report).toMatchObject({
+    status: "failed",
+    failure: { kind: "set-aside" },
+    run: { outcome: "abandoned" },
+  });
+  expect(report.failure?.message).toMatch(/stopped sending/);
+  // The requests in flight when it found out, and none after them.
+  expect(api.sent.length).toBeLessThanOrEqual(2 + 4);
+  expect(report.classified).toBe(api.sent.length);
+  expect(report.summary.classified).toBe(api.sent.length);
+  expect(getTaggingRun(lib.store, report.run?.id ?? 0).outcome).toBe(
+    "abandoned",
+  );
 });
 
 test("a rate limit that never lifts ends the run as failed, with every answer it had kept", async () => {

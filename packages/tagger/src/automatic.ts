@@ -33,8 +33,8 @@
 import {
   getOpenTaggingRun,
   listClassificationCandidates,
-  listTaggingRuns,
   type Store,
+  summariseTaggingSpend,
 } from "@x-bookmarks/core";
 // Types alone from the client and the run: both are loaded inside a pass
 // that is allowed to send, and not before. boundary.test.ts pins it.
@@ -91,15 +91,18 @@ export interface AutomaticPass {
   warning: string | null;
 }
 
-/** What the app's own runs have spent since a day ago. */
+/**
+ * What the app's own runs have spent since a day ago, and may have spent:
+ * what the API reported, and what each run held for attempts that brought
+ * no answer, which the API may have charged for. Every run of the day is in
+ * it, however many there were.
+ */
 function spentByAppToday(store: Store, now: Date): number {
-  return listTaggingRuns(store, { limit: 100 })
-    .filter(
-      (run) =>
-        run.startedBy === "app" &&
-        run.startedAt.getTime() > now.getTime() - DAY_MS,
-    )
-    .reduce((sum, run) => sum + run.costUsd, 0);
+  const { costUsd, heldUsd } = summariseTaggingSpend(store, {
+    startedBy: "app",
+    since: new Date(now.getTime() - DAY_MS),
+  });
+  return costUsd + heldUsd;
 }
 
 export async function tagNewBookmarks(
@@ -182,7 +185,10 @@ export async function tagNewBookmarks(
     }
     const claude = connect(apiKey);
     const run = async (mode: "untagged" | "new-tags") => {
-      const used = reports.reduce((sum, { costUsd }) => sum + costUsd, 0);
+      const used = reports.reduce(
+        (sum, { costUsd, heldUsd }) => sum + costUsd + heldUsd,
+        0,
+      );
       const report = await runTagging(store, {
         claude,
         startedBy: "app",

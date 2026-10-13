@@ -81,7 +81,9 @@ export interface NewClassification {
   tags: readonly string[];
   /**
    * What it suggested beyond the vocabulary, as it wrote it. One that turns
-   * out to be another way of writing a tag becomes that tag; one the owner
+   * out to be another way of writing a tag becomes that tag, beside the
+   * tags above and whatever their number, exactly as it would had the owner
+   * named the alias a moment after this was stored; one the owner
    * has ruled out, or that is not shaped like a tag, is dropped; the rest
    * are kept as proposals, `TAXONOMY.maxProposedTagsPerPost` at most.
    */
@@ -152,7 +154,7 @@ export function recordClassification(
     }
     if (tags.size > TAXONOMY.maxTagsPerPost) {
       throw new RangeError(
-        `A bookmark has at most ${TAXONOMY.maxTagsPerPost} tags; got ${tags.size}.`,
+        `An answer of the classifier holds at most ${TAXONOMY.maxTagsPerPost} tags; got ${tags.size}.`,
       );
     }
     const proposals = new Set<string>();
@@ -161,7 +163,7 @@ export function recordClassification(
       const known = suggestionOf(db, folded);
       if (known === null) continue;
       if (known !== undefined) {
-        if (tags.size < TAXONOMY.maxTagsPerPost) tags.add(known);
+        tags.add(known);
       } else if (
         TAG_SHAPE.test(folded) &&
         folded.length <= MAX_TAG_LENGTH &&
@@ -324,8 +326,13 @@ export interface NewTagsAnswer {
  * are taken, the ones the bookmark had never been asked about, and they are
  * added to what it has: its category, its format and its other tags stay
  * exactly as they were, so a pass like this can never move a bookmark the
- * owner has learnt where to find. The bookmark then counts as asked about
- * the whole vocabulary of that version. Returns the tags it gained.
+ * owner has learnt where to find. They are added however many tags it has:
+ * the limit on tags is on one answer, and a tag the owner added since is
+ * the reason for asking. The bookmark then counts as asked about the whole
+ * vocabulary of that version. Returns the tags it gained.
+ *
+ * An answer with no tags is how a bookmark that could not be asked, having
+ * nothing worth sending, is marked as up to date and left as it is.
  */
 export function recordNewTags(store: Store, answer: NewTagsAnswer): string[] {
   const db = connectionOf(store);

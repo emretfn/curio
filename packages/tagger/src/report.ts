@@ -69,7 +69,9 @@ export function describePlan(plan: TaggingPlan): string {
       ["Would be sent to the API", number(plan.toSend)],
       [
         "Too little text to send",
-        `${number(plan.tooLittleToSend)}  (filed as "${OTHER_CATEGORY}", too little text, without a request)`,
+        plan.mode === "new-tags"
+          ? `${number(plan.tooLittleToSend)}  (left exactly as they are, without a request)`
+          : `${number(plan.tooLittleToSend)}  (filed as "${OTHER_CATEGORY}", too little text, without a request)`,
       ],
       [
         "Sent, but thin",
@@ -200,7 +202,9 @@ export function describeReport(report: TaggingReport): string {
         ["Bookmarks taken", number(report.selected)],
         ["Classified", number(report.classified)],
         [
-          "  without a request, too little text",
+          report.mode === "new-tags"
+            ? "  left as they are, too little text to ask about"
+            : "  without a request, too little text",
           number(report.filedWithoutRequest),
         ],
         ["Failed", number(report.failed)],
@@ -225,7 +229,7 @@ export function describeReport(report: TaggingReport): string {
     if (report.unanswered > 0) {
       lines.push(
         "",
-        `${number(report.unanswered)} attempts went out and brought no answer back (a timeout or a dropped connection). The API may have charged for them all the same; that is in no count above. Each was held against the cap at the most a request can cost.`,
+        `${number(report.unanswered)} attempts went out and brought no answer back (a timeout or a dropped connection). The API may have charged for them all the same; that is in no count above. Each was held against the cap at the most a request can cost: ${usd(report.heldUsd)} in all.`,
       );
     }
     if (sent > 0 && report.summary.unclassified > 0) {
