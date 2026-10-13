@@ -151,6 +151,16 @@ export interface PageRequest {
   after?: string | null | undefined;
   /** Defaults to `DEFAULT_PAGE_SIZE`, and is capped at core's `MAX_PAGE_SIZE`. */
   limit?: number | undefined;
+  /**
+   * How many items the query matched when the reader's last page was read:
+   * that page's `total`. A search is counted off by position, and a match
+   * that has left the search since, such as a post the reader has just
+   * filed out of the filter, moves every later match one place up. Given
+   * this, a search's page starts as many places earlier as matches have
+   * left, so none is passed over; the reader drops what it is sent twice.
+   * A list by time continues from a bookmark and needs none of it.
+   */
+  seen?: number | undefined;
 }
 
 export const DEFAULT_PAGE_SIZE = 40;
@@ -361,13 +371,24 @@ export function listLibrary(
 
   const text = searchOf(query);
   if (text !== undefined) {
-    const offset = after === null ? 0 : offsetOf(after, "s");
-    const found = searchBookmarks(store, {
-      ...filter,
-      query: text,
-      limit,
-      offset,
-    });
+    const asked = after === null ? 0 : offsetOf(after, "s");
+    const search = (offset: number, count: number) =>
+      searchBookmarks(store, { ...filter, query: text, limit: count, offset });
+    let offset = asked;
+    let found = search(offset, limit);
+    // Fewer matches than the reader's last page knew of: as many may have
+    // left from before this page's place, and the matches that stood there
+    // are now before it. The page is read again from that much earlier, and
+    // that much longer, as far as a page may be.
+    const left = Math.min(
+      asked,
+      MAX_PAGE_SIZE - limit,
+      Math.max(0, (page.seen ?? found.total) - found.total),
+    );
+    if (left > 0) {
+      offset = asked - left;
+      found = search(offset, limit + left);
+    }
     const shown = offset + found.hits.length;
     return {
       items: found.hits.map(({ bookmark }) => ({ kind: "bookmark", bookmark })),

@@ -36,6 +36,7 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
+  addTag,
   type Bookmark,
   correctBookmark,
   finishDigestRun,
@@ -4350,6 +4351,227 @@ test("a search that matched a post by its author or by a picture's description s
   await page.close();
 });
 
+test("a list being corrected stays the reader's: its rows and an open tag list stay when nothing matches any more, the tag list keeps its order, changes go one at a time, and a menu opens on screen", {
+  timeout: TEST_TIMEOUT_MS,
+}, async () => {
+  seedLabels();
+  const from = seedLibrary();
+  const total = libraryBookmarks().length;
+  // One bookmark with a tag of its own, so that a list of one can be had.
+  const solo = libraryBookmarks().at(-1)?.postId ?? "";
+  addTag(from, "e2e-solo");
+  correctBookmark(from, solo, { addTags: ["e2e-solo"] });
+
+  const page = await openLibrary("/?tag=e2e-solo", {
+    width: 1280,
+    height: 700,
+  });
+  const post = page.locator(`[data-post-id="${solo}"]`).first();
+  const options = page.getByRole("option");
+  const offered = () => options.allTextContents();
+  const shownTags = () => post.locator("[data-labels] a").allTextContents();
+  assert.equal(await resultCount(page), `1 of ${total} bookmarks`);
+  assert.deepEqual(await shownPosts(page), [solo]);
+
+  // The control that opens the tag list has a name of its own: a combobox
+  // takes none from what is written in it.
+  await post.getByRole("combobox", { name: "Add or remove tags" }).click();
+  await options.first().waitFor();
+  const order = await offered();
+  assert.equal(order[0], "e2e-solo", "the post's own tags are offered first");
+  const last = order.at(-1) ?? "";
+  assert.ok(order.length > 10 && !labelsOf(solo).tags.includes(last));
+
+  // A tag far down the list is switched on by a press. The page is read
+  // again after it, and the list keeps the order it opened in: a second
+  // press in the same place would otherwise land on another tag.
+  await options.last().click();
+  await waitFor("the tag to be stored", () =>
+    labelsOf(solo).tags.includes(last),
+  );
+  await waitFor("the row to show it", async () =>
+    (await shownTags()).includes(`#${last}`),
+  );
+  assert.deepEqual(await offered(), order);
+  await options.last().click();
+  await waitFor(
+    "the same press to take the same tag off again",
+    () => !labelsOf(solo).tags.includes(last),
+  );
+  await waitFor(
+    "the row to show that",
+    async () => !(await shownTags()).includes(`#${last}`),
+  );
+  assert.deepEqual(await offered(), order);
+
+  // The tag the list is of is taken off its one post. Nothing matches any
+  // more, and the reader is still in the post: the row stays, and so does
+  // the open tag list, where the choice can be undone.
+  await options.first().click();
+  await waitFor(
+    "the tag to be taken off",
+    () => !labelsOf(solo).tags.includes("e2e-solo"),
+  );
+  await waitFor(
+    "the count to follow",
+    async () => (await resultCount(page)) === `0 of ${total} bookmarks`,
+  );
+  assert.equal(await page.getByTestId("no-results").count(), 0);
+  assert.deepEqual(await shownPosts(page), [solo]);
+  assert.deepEqual(await offered(), order, "the tag list is still open");
+  // The list says which of its rows the count no longer covers, and a row
+  // still has a place in a list that is at least as long as its rows.
+  assert.match(
+    (await page.getByTestId("no-longer-matching").textContent()) ?? "",
+    /^1 bookmark listed here no longer matches, and stays until the list is read again\./,
+  );
+  assert.equal(await post.getAttribute("aria-posinset"), "1");
+  assert.equal(await post.getAttribute("aria-setsize"), "1");
+  // Undone from where the reader is.
+  await options.first().click();
+  await waitFor("the tag to be back", () =>
+    labelsOf(solo).tags.includes("e2e-solo"),
+  );
+  await waitFor(
+    "the list to match its rows again",
+    async () =>
+      (await page.getByTestId("no-longer-matching").count()) === 0 &&
+      (await resultCount(page)) === `1 of ${total} bookmarks`,
+  );
+  await page.keyboard.press("Escape");
+
+  // Two changes made quickly go to the app one after the other, so the
+  // last one made is the last one stored and the one the row shows. The
+  // first is held up here on its way; the second waits for its answer.
+  let onTheirWay = 0;
+  let mostAtOnce = 0;
+  let held = false;
+  const correcting = `${APP_ORIGIN}/api/owner/correct`;
+  page.on("requestfinished", (request) => {
+    if (request.url() === correcting) onTheirWay -= 1;
+  });
+  await page.route(correcting, async (route) => {
+    onTheirWay += 1;
+    mostAtOnce = Math.max(mostAtOnce, onTheirWay);
+    if (!held) {
+      held = true;
+      await sleep(700);
+    }
+    await route.continue();
+  });
+  const menu = page.getByRole("menu");
+  const choose = async (key: string, digit: string) => {
+    await waitFor(
+      "the keyboard to be on the post",
+      async () =>
+        (await menu.count()) === 0 && (await focusedPostId(page)) === solo,
+    );
+    await page.keyboard.press(key);
+    await waitFor("the menu to take the keyboard", () =>
+      page.evaluate(
+        () => document.activeElement?.closest('[role="menu"]') != null,
+      ),
+    );
+    await page.keyboard.press(digit);
+  };
+  const [earlier = "", later = ""] = TAXONOMY.categories
+    .map(({ id }) => id)
+    .filter((id) => id !== labelsOf(solo).category);
+  await post.focus();
+  await choose("c", digitOf(TAXONOMY.categories, earlier));
+  await choose("c", digitOf(TAXONOMY.categories, later));
+  await waitFor(
+    "both changes to be stored",
+    () => labelsOf(solo).category === later,
+  );
+  await waitFor(
+    "the row to show the last",
+    async () =>
+      (await post
+        .locator('[data-edit="category"]')
+        .getAttribute("data-value")) === later &&
+      (await post.locator("[data-labels]").getAttribute("aria-busy")) === null,
+  );
+  assert.equal(
+    mostAtOnce,
+    1,
+    "the second change waited for the first's answer",
+  );
+  assert.equal(labelsOf(solo).category, later);
+  await page.unroute(correcting);
+  await page.close();
+
+  // A post taller than the window: the key that opens its category brings
+  // the line it is on into view first, so the menu opens where it can be
+  // seen, clear of the bar at the top.
+  const viewport = 400;
+  const long = await openLibrary("/?has=long", {
+    width: 1280,
+    height: viewport,
+  });
+  // By its id: the list draws only the rows near the screen, so "the first
+  // post that can be opened" is another post once the page has moved.
+  const tallId = await long
+    .locator("[data-post]", { has: long.locator("[data-expand]") })
+    .first()
+    .getAttribute("data-post-id");
+  const tall = long.locator(`[data-post-id="${tallId}"]`).first();
+  await tall.focus();
+  await long.keyboard.press("e");
+  await tall.evaluate((post) => post.scrollIntoView({ block: "start" }));
+  await drawn(long);
+  const control = tall.locator('[data-edit="category"]');
+  assert.ok(
+    ((await tall.boundingBox())?.height ?? 0) > viewport,
+    "the opened post is taller than the window",
+  );
+  const onScreen = async () => {
+    const box = await control.boundingBox();
+    return box !== null && box.y >= 56 && box.y + box.height <= viewport;
+  };
+  assert.ok(
+    ((await control.boundingBox())?.y ?? 0) > viewport,
+    "its labels are below the screen",
+  );
+  const measured = (id: string | null) =>
+    long.evaluate((postId) => {
+      const post = document.querySelector(`[data-post-id="${postId}"]`);
+      const edit = post?.querySelector('[data-edit="category"]');
+      return {
+        scrolled: Math.round(window.scrollY),
+        most: document.documentElement.scrollHeight - window.innerHeight,
+        post: Math.round(post?.getBoundingClientRect().top ?? -1),
+        tall: Math.round(post?.getBoundingClientRect().height ?? -1),
+        control: Math.round(edit?.getBoundingClientRect().top ?? -1),
+        rows: [...document.querySelectorAll("[data-row]")].map(
+          (row) =>
+            `${row.getAttribute("data-index")}:${Math.round(row.getBoundingClientRect().top)}+${Math.round(row.getBoundingClientRect().height)}`,
+        ),
+        menu: document.querySelector('[role="menu"]') !== null,
+        overflow: getComputedStyle(document.documentElement).overflow,
+      };
+    }, id);
+  const trace: unknown[] = [await measured(tallId)];
+  await long.keyboard.press("c");
+  for (let frame = 0; frame < 8; frame += 1) {
+    trace.push(await measured(tallId));
+    await sleep(40);
+  }
+  await long.getByRole("menu").waitFor();
+  await drawn(long);
+  const where = JSON.stringify(trace);
+  assert.equal(
+    await onScreen(),
+    true,
+    `the control the menu hangs from is on screen: ${where}`,
+  );
+  const opened = await long.getByRole("menu").boundingBox();
+  assert.ok(
+    opened !== null && opened.y < viewport && opened.y + opened.height > 0,
+  );
+  await long.close();
+});
+
 test("with every bookmark classified nothing is offered as unclassified, and the status page counts what was done by hand", {
   timeout: TEST_TIMEOUT_MS,
 }, async () => {
@@ -4357,15 +4579,17 @@ test("with every bookmark classified nothing is offered as unclassified, and the
   const from = seedLibrary();
   // Every bookmark the classifier has no answer for, those removed on X
   // among them, is given one, through core.
-  for (;;) {
-    // Filed under no category: once classified, a bookmark leaves this list.
-    const { bookmarks: waiting } = listBookmarks(from, {
+  // One the owner filed by hand, which the classifier has still not seen,
+  // is among them: it is under a category and has no answer.
+  let after: string | undefined;
+  do {
+    const page = listBookmarks(from, {
       includeRemoved: true,
-      classified: false,
       limit: MAX_PAGE_SIZE,
+      after,
     });
-    if (waiting.length === 0) break;
-    for (const { postId } of waiting) {
+    for (const { postId, labels } of page.bookmarks) {
+      if (labels.classification !== null) continue;
       recordClassification(from, {
         postId,
         category: "life",
@@ -4376,7 +4600,8 @@ test("with every bookmark classified nothing is offered as unclassified, and the
         model: "a-model",
       });
     }
-  }
+    after = page.nextCursor ?? undefined;
+  } while (after !== undefined);
   const standing = summariseTagging(from);
   assert.equal(standing.unclassified, 0);
 

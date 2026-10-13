@@ -6,19 +6,30 @@
 import type { LibraryPageAnswer } from "@/server/library-page";
 
 /**
- * `search` is the page's own query string, without the `?`. `limit` asks for
- * a longer page than usual, for a reader returning to a place far down the
- * list; the app caps it.
+ * The address of a list's next page. `search` is the page's own query
+ * string, without the `?`. `limit` asks for a longer page than usual, for a
+ * reader returning to a place far down the list; the app caps it. `seen` is
+ * how many items the last page said the list had, which is how a search
+ * keeps its place when matches have left it since.
  */
+export function nextPageAddress(
+  search: string,
+  after: string,
+  more: { limit?: number | undefined; seen?: number | undefined } = {},
+): string {
+  const query = new URLSearchParams(search);
+  query.set("after", after);
+  if (more.limit !== undefined) query.set("limit", String(more.limit));
+  if (more.seen !== undefined) query.set("seen", String(more.seen));
+  return `/api/library?${query}`;
+}
+
 export async function loadMore(
   search: string,
   after: string,
-  limit?: number,
+  more: { limit?: number | undefined; seen?: number | undefined } = {},
 ): Promise<LibraryPageAnswer> {
-  const query = new URLSearchParams(search);
-  query.set("after", after);
-  if (limit !== undefined) query.set("limit", String(limit));
-  const response = await fetch(`/api/library?${query}`, {
+  const response = await fetch(nextPageAddress(search, after, more), {
     credentials: "omit",
     cache: "no-store",
   });

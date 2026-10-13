@@ -24,8 +24,6 @@ export interface TagView {
   /** How many bookmarks have it. For a retired tag, how many would get it back. */
   bookmarks: number;
   aliases: string[];
-  /** Whether the owner added it, or the library began with it. */
-  addedByOwner: boolean;
 }
 
 export interface TagsScreen {
@@ -62,9 +60,9 @@ export function getTagsScreen(store: Store, atLeast: number): TagsScreen {
     limit: MAX_TAG_PROPOSALS,
   });
   const all = listTags(store, { includeRetired: true }).map(
-    ({ tag, bookmarks, aliases, origin, retiredAt }) => ({
+    ({ tag, bookmarks, aliases, retiredAt }) => ({
       retired: retiredAt !== null,
-      view: { tag, bookmarks, aliases, addedByOwner: origin === "owner" },
+      view: { tag, bookmarks, aliases },
     }),
   );
   return {

@@ -20,6 +20,12 @@
  *   whether or not the next row is drawn yet, and a reload or Back returns
  *   to the same place (`place.ts`).
  *
+ * A post corrected here stays in the list, where the reader is, even when
+ * it no longer matches the query: the list then says how many of its rows
+ * that is, and offers to read the list again. It counts its rows by what the
+ * query matched when the reader arrived, so a row's place in the whole does
+ * not shrink under it.
+ *
  * The browser's own find-in-page sees only the rows that are drawn. The
  * search field, `/`, searches all of the library.
  *
@@ -54,6 +60,7 @@ import {
 import type { ItemView } from "@/lib/post-view";
 import { LIST_KEYS } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
+import { counted } from "@/lib/words";
 import { loadMore } from "./load-more.ts";
 import { placeKey, readPlace, writePlace } from "./place.ts";
 import { PostItem, WithheldItem } from "./post-item.tsx";
@@ -133,9 +140,20 @@ export function LibraryList({
   search: string;
   /** Whether the items are a search's, best match first. */
   ranked: boolean;
-  /** How many items the search matches, loaded or not. */
+  /**
+   * How many items the query matches, loaded or not, as the server last
+   * counted: it is read again after every correction made in the list.
+   */
   total: number;
 }) {
+  // How many it matched when the reader arrived. Rows corrected since stay
+  // in the list, so this, and not the count as it now stands, is how many
+  // the list is of.
+  const [arrived] = useState(total);
+  /** How many the query matched when the last page was read: what a search's next page is asked with. */
+  const seen = useRef(total);
+  /** Rows that are in the list and no longer match the query. */
+  const gone = Math.max(0, arrived - total);
   const [items, setItems] = useState(initialItems);
   const [cursor, setCursor] = useState(initialCursor);
   const [state, setState] = useState<"idle" | "loading" | "failed">("idle");
@@ -256,7 +274,8 @@ export function LibraryList({
     asking.current = true;
     setState("loading");
     try {
-      const page = await loadMore(search, cursor);
+      const page = await loadMore(search, cursor, { seen: seen.current });
+      seen.current = page.total;
       // A search is paged by position, so a capture that arrives between
       // two pages can send an item a second time. It is shown once.
       setItems((shown) => {
@@ -290,7 +309,8 @@ export function LibraryList({
       let next = initialCursor;
       try {
         while (!left && next !== null && shown.length < place.loaded) {
-          const page = await loadMore(search, next, RETURN_PAGE);
+          const page = await loadMore(search, next, { limit: RETURN_PAGE });
+          seen.current = page.total;
           const ids = new Set(shown.map((item) => item.id));
           shown = [...shown, ...page.items.filter((item) => !ids.has(item.id))];
           next = page.nextCursor;
@@ -469,6 +489,12 @@ export function LibraryList({
         if (control === null) return;
         // The key must not also be typed into the field the control opens.
         event.preventDefault();
+        // A post can be taller than the window, with its labels below the
+        // screen: what the key opens is brought into view first, clear of
+        // the bar and the month under it.
+        control
+          .closest<HTMLElement>("[data-labels]")
+          ?.scrollIntoView({ block: "nearest" });
         control.click();
       }
     };
@@ -484,8 +510,32 @@ export function LibraryList({
     : 0;
   const stuck = headingFor(rows, top);
 
+  // Each post says its place among all of the list's, and the list is at
+  // least as long as what it holds.
+  const size = Math.max(total, arrived, items.length);
+
   return (
     <div className="flex flex-col">
+      {gone > 0 ? (
+        <p
+          role="status"
+          data-testid="no-longer-matching"
+          className="flex flex-wrap items-baseline gap-x-2 gap-y-1 pb-2 text-[0.8125rem] text-muted-foreground"
+        >
+          {counted(
+            gone,
+            "{n} bookmark listed here no longer matches, and stays until the list is read again.",
+            "{n} bookmarks listed here no longer match, and stay until the list is read again.",
+          )}
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-sm text-foreground underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Read it again
+          </button>
+        </p>
+      ) : null}
       <div
         ref={list}
         data-list={live ? "live" : "static"}
@@ -520,7 +570,7 @@ export function LibraryList({
                   }
                 >
                   <RowMemoryProvider value={memoryOf(row.key)}>
-                    <Row row={row} total={total} />
+                    <Row row={row} total={size} />
                   </RowMemoryProvider>
                 </div>
               );
@@ -533,7 +583,7 @@ export function LibraryList({
                 className={cn(isItemRow(row) && DIVIDED)}
               >
                 <RowMemoryProvider value={memoryOf(row.key)}>
-                  <Row row={row} total={total} />
+                  <Row row={row} total={size} />
                 </RowMemoryProvider>
               </div>
             ))}

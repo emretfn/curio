@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { LabelChoicesProvider } from "@/components/library/label-choices";
 import { LibraryFrame, Results } from "@/components/library/library-frame";
 import { LibraryList } from "@/components/library/library-list";
+import { Listing } from "@/components/library/listing";
 import { MobileFilters } from "@/components/library/mobile-filters";
 import { SearchBox } from "@/components/library/search-box";
 import { ThemeSetting } from "@/components/library/settings";
@@ -366,12 +367,15 @@ export default async function LibraryPage({
                       </ul>
                     ) : null}
                   </div>
-                  {page.total === 0 ? (
-                    <NoResults params={params} />
-                  ) : (
+                  {/* A list the reader is in stays, whatever a correction
+                      made in it leaves the query matching. */}
+                  <Listing
+                    key={search}
+                    total={page.total}
+                    empty={<NoResults params={params} />}
+                  >
                     <LabelChoicesProvider choices={labelChoices(store)}>
                       <LibraryList
-                        key={search}
                         initialItems={page.items.map((item) =>
                           toItemView(item, page.terms),
                         )}
@@ -381,7 +385,7 @@ export default async function LibraryPage({
                         total={page.total}
                       />
                     </LabelChoicesProvider>
-                  )}
+                  </Listing>
                 </Results>
               )}
             </Column>

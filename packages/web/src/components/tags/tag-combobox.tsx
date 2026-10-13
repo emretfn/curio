@@ -46,8 +46,11 @@ export function TagCombobox({
       }}
       autoHighlight
     >
+      {/* A combobox takes its name from a label, not from what is written
+          in it. */}
       <ComboboxPrimitive.Trigger
         disabled={disabled}
+        aria-label={label}
         render={<Button variant="outline" size="sm" />}
       >
         {label}

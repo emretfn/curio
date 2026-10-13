@@ -34,7 +34,7 @@ import {
   retireTag,
   summariseTagging,
 } from "./core.ts";
-import { MAX_PAGE_WRITE_BYTES, refuseUnlessOwnPage } from "./page-door.ts";
+import { readPageBody, refuseUnlessOwnPage, tooLarge } from "./page-door.ts";
 
 /** What a screen is told of a change it asked for. */
 export interface OwnerWriteAnswer {
@@ -402,12 +402,8 @@ export async function handleOwnerWrite(
   if (!Object.hasOwn(ACTIONS, action)) {
     return answer(404, { error: "There is no such change to make." });
   }
-  const text = await request.text();
-  if (Buffer.byteLength(text) > MAX_PAGE_WRITE_BYTES) {
-    return answer(413, {
-      error: `A change may be at most ${MAX_PAGE_WRITE_BYTES} bytes.`,
-    });
-  }
+  const text = await readPageBody(request);
+  if (text === null) return tooLarge();
   let body: unknown;
   try {
     body = JSON.parse(text);

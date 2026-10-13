@@ -64,10 +64,37 @@ export function refuseUnlessOwnPage(request: Request): Response | null {
     return refusal(415, "Send application/json.");
   }
   if (Number(request.headers.get("content-length")) > MAX_PAGE_WRITE_BYTES) {
-    return refusal(
-      413,
-      `A change may be at most ${MAX_PAGE_WRITE_BYTES} bytes.`,
-    );
+    return tooLarge();
   }
   return null;
+}
+
+/** The refusal of a change longer than a change can be. */
+export function tooLarge(): Response {
+  return refusal(413, `A change may be at most ${MAX_PAGE_WRITE_BYTES} bytes.`);
+}
+
+/**
+ * The body of a request the door has let through, or null when it is longer
+ * than a change can be. It is read as it arrives and no further than
+ * `MAX_PAGE_WRITE_BYTES`: a body sent in pieces declares no length for the
+ * door to refuse, and must not be taken into memory whole to be measured.
+ */
+export async function readPageBody(request: Request): Promise<string | null> {
+  if (request.body === null) return "";
+  const reader = request.body.getReader();
+  const pieces: Uint8Array[] = [];
+  let length = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    length += value.byteLength;
+    if (length > MAX_PAGE_WRITE_BYTES) {
+      // The rest is not wanted, and is not waited for.
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    pieces.push(value);
+  }
+  return Buffer.concat(pieces).toString("utf8");
 }

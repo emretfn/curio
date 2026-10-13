@@ -270,6 +270,7 @@ test("a bookmark saved after the digest was written is counted as not in it, and
   expect(page.written?.themes[0]?.posts[0]).toMatchObject({
     id: removed,
     listed: false,
+    removedOnX: true,
   });
   // One left the week and one joined it: the count alone says neither.
   expect(page.written?.savedSince).toBe(0);
@@ -301,4 +302,28 @@ test("the digest's own modules read through core, never write, and never ask for
   }
   const data = sources.find(({ path }) => path === "server/digest.ts")?.source;
   expect(data).toMatch(/from "\.\/core\.ts"/);
+});
+
+test("a post the summary points at beyond what the page lists is said to be further down, not removed", () => {
+  const { store, week, inWeek } = library();
+  const ids = inWeek.map(({ postId }) => postId);
+  // The summary points at the week's two oldest posts.
+  write(store, week, ids.toReversed());
+
+  // The page lists the week's latest two, which are not those.
+  const page = getDigestPage(store, week, NOW, 2);
+
+  expect(page.posts.map(({ view }) => view.id)).toEqual(ids.slice(0, 2));
+  const pointedAt = [
+    ...(page.written?.themes.flatMap(({ posts }) => posts) ?? []),
+    ...(page.written?.worthRevisiting.map(({ post }) => post) ?? []),
+  ];
+  expect(pointedAt.length).toBeGreaterThan(0);
+  const beyond = pointedAt.filter(({ listed }) => !listed);
+  expect(beyond.length).toBeGreaterThan(0);
+  for (const reference of pointedAt) {
+    expect(reference.listed).toBe(ids.slice(0, 2).includes(reference.id));
+    // None of them was removed on X, listed or not.
+    expect(reference.removedOnX).toBe(false);
+  }
 });

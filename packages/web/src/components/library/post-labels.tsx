@@ -46,6 +46,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { offeredTags, tagChange } from "@/lib/label-edits";
 import { failureMessage, ownerWrite } from "@/lib/owner-write";
 import type { LabelsView } from "@/lib/post-view";
 import { cn } from "@/lib/utils";
@@ -194,17 +195,22 @@ function TagPicker({
 }) {
   const { tags: vocabulary } = useLabelChoices();
   const [open, setOpen] = useState(false);
-  // The post's own tags first, as they stood when the list was opened, so
-  // that nothing moves under the pointer while one is switched.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: ordered once per opening, not on every change to `tags`.
-  const items = useMemo(() => {
-    const has = new Set(tags);
-    const names = vocabulary.map(({ tag }) => tag);
-    return [
-      ...names.filter((tag) => has.has(tag)),
-      ...names.filter((tag) => !has.has(tag)),
-    ];
-  }, [vocabulary, open]);
+  // The post's own tags first, as they stood when the list was opened. The
+  // order is worked out at that moment and kept until it is opened again:
+  // the page is read again after every switch, and a list put in order
+  // again then would move another tag under the pointer.
+  const [items, setItems] = useState<string[]>([]);
+  const openOrClose = (next: boolean) => {
+    if (next) {
+      setItems(
+        offeredTags(
+          vocabulary.map(({ tag }) => tag),
+          tags,
+        ),
+      );
+    }
+    setOpen(next);
+  };
   const aliases = useMemo(
     () => new Map(vocabulary.map(({ tag, aliases }) => [tag, aliases])),
     [vocabulary],
@@ -228,17 +234,19 @@ function TagPicker({
       value={tags}
       onValueChange={(next: string[]) => onChange(next)}
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={openOrClose}
       filter={filter}
       autoHighlight
     >
+      {/* The control is a combobox, which takes its name from a label and
+          not from what is written in it. */}
       <ComboboxPrimitive.Trigger
         data-edit="tags"
+        aria-label="Add or remove tags"
         className={cn(CONTROL, quiet && AT_HAND)}
       >
         <Plus aria-hidden="true" className="size-3 shrink-0 opacity-70" />
-        <span aria-hidden="true">Tag</span>
-        <span className="sr-only">Add or remove tags</span>
+        Tag
       </ComboboxPrimitive.Trigger>
       <ComboboxContent className="w-60" aria-label="Tags of this post">
         <ComboboxInput
@@ -283,11 +291,20 @@ export function PostLabels({
    */
   const [askedTags, setAskedTags] = useState<string[] | null>(null);
   const onTheirWay = useRef(0);
+  /**
+   * The changes made to this post, one after another. Each is sent when the
+   * one before has been answered, so the answers arrive in the order the
+   * changes were made and the last one shown is the last one stored.
+   */
+  const inTurn = useRef<Promise<void>>(Promise.resolve());
 
-  const save = async (change: Change) => {
+  const save = (change: Change): void => {
     onTheirWay.current += 1;
     setSaving(true);
     setFailure(null);
+    inTurn.current = inTurn.current.then(() => send(change));
+  };
+  const send = async (change: Change): Promise<void> => {
     try {
       const answer = await ownerWrite("correct", { postId, ...change });
       if (answer.labels !== undefined) setLabels(answer.labels);
@@ -307,22 +324,8 @@ export function PostLabels({
 
   const tagsNow = askedTags ?? labels.tags;
   const setTags = (next: string[]) => {
-    const wanted = new Set(next);
-    const had = new Set(tagsNow);
-    const classifiers = new Set(labels.classifier?.tags ?? []);
-    const change: Required<
-      Pick<Change, "addTags" | "removeTags" | "resetTags">
-    > = { addTags: [], removeTags: [], resetTags: [] };
     setAskedTags(next);
-    for (const tag of new Set([...next, ...tagsNow])) {
-      if (wanted.has(tag) === had.has(tag)) continue;
-      // Back to what the classifier said of it, the owner has nothing left
-      // to say of that tag; otherwise this is the owner's word.
-      if (wanted.has(tag) === classifiers.has(tag)) change.resetTags.push(tag);
-      else if (wanted.has(tag)) change.addTags.push(tag);
-      else change.removeTags.push(tag);
-    }
-    void save(change);
+    save(tagChange(next, tagsNow, labels.classifier?.tags ?? []));
   };
 
   const filed = labels.category !== null;
@@ -333,7 +336,7 @@ export function PostLabels({
         data-labels=""
         aria-busy={saving || undefined}
         className={cn(
-          "-mx-1.5 flex flex-wrap items-center gap-y-1 text-[0.8125rem] text-muted-foreground transition-opacity duration-150 ease-out",
+          "-mx-1.5 flex scroll-mt-28 scroll-mb-6 flex-wrap items-center gap-y-1 text-[0.8125rem] text-muted-foreground transition-opacity duration-150 ease-out",
           // The wait keeps a quick answer from flickering.
           saving && "opacity-60 delay-150",
         )}
@@ -348,7 +351,7 @@ export function PostLabels({
           classifiers={labels.classifier?.category ?? null}
           quiet={false}
           strong
-          onChoose={(category) => void save({ category })}
+          onChoose={(category) => save({ category })}
         />
         {labels.tooLittleText ? (
           <span
@@ -370,7 +373,7 @@ export function PostLabels({
           corrected={labels.corrected.format}
           classifiers={labels.classifier?.format ?? null}
           quiet={bare}
-          onChoose={(format) => void save({ format })}
+          onChoose={(format) => save({ format })}
         />
         {labels.tags.length > 0 ? (
           <ul aria-label="Tags" className="contents">

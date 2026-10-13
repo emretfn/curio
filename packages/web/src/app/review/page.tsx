@@ -4,6 +4,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LabelChoicesProvider } from "@/components/library/label-choices";
 import { LibraryList } from "@/components/library/library-list";
+import { Listing } from "@/components/library/listing";
 import { Column, Shell } from "@/components/library/shell";
 import {
   Empty,
@@ -148,66 +149,69 @@ export default async function ReviewPage({
           {queue.about}
         </p>
 
-        {page.total === 0 ? (
-          <Empty className="py-16" data-testid="nothing-to-review">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <ListChecks aria-hidden="true" />
-              </EmptyMedia>
-              <EmptyTitle className="text-base">
-                {facets.anyFiled ? "Nothing here" : "Nothing to review yet"}
-              </EmptyTitle>
-              <EmptyDescription>
-                {facets.anyFiled
-                  ? "No bookmark is waiting in this queue."
-                  : "A queue fills as bookmarks are classified, and none has been. The status page has the command that files the library."}
-              </EmptyDescription>
-            </EmptyHeader>
-            {facets.anyFiled ? null : (
-              <EmptyContent>
-                <Link
-                  href="/status#tagging"
-                  prefetch={false}
-                  className="rounded-sm text-sm underline underline-offset-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  Open the status page
-                </Link>
-              </EmptyContent>
-            )}
-          </Empty>
-        ) : (
-          <>
-            {/* Only where there is a keyboard to press them on. */}
-            <dl className="mt-3 hidden flex-wrap items-center gap-x-3 gap-y-1.5 text-muted-foreground text-xs [@media(hover:hover)]:flex">
-              {KEYS.map(([key, does]) => (
-                <div key={key} className="flex items-center gap-1.5">
-                  <dt>
-                    <Kbd>{key}</Kbd>
-                  </dt>
-                  <dd>{does}</dd>
-                </div>
-              ))}
-              <div className="flex items-center gap-1.5">
+        {/* A queue the reader is in stays, its last post included: filing
+            it empties the queue, and the post is still there to finish. */}
+        <Listing
+          key={search}
+          total={page.total}
+          empty={
+            <Empty className="py-16" data-testid="nothing-to-review">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <ListChecks aria-hidden="true" />
+                </EmptyMedia>
+                <EmptyTitle className="text-base">
+                  {facets.anyFiled ? "Nothing here" : "Nothing to review yet"}
+                </EmptyTitle>
+                <EmptyDescription>
+                  {facets.anyFiled
+                    ? "No bookmark is waiting in this queue."
+                    : "A queue fills as bookmarks are classified, and none has been. The status page has the command that files the library."}
+                </EmptyDescription>
+              </EmptyHeader>
+              {facets.anyFiled ? null : (
+                <EmptyContent>
+                  <Link
+                    href="/status#tagging"
+                    prefetch={false}
+                    className="rounded-sm text-sm underline underline-offset-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    Open the status page
+                  </Link>
+                </EmptyContent>
+              )}
+            </Empty>
+          }
+        >
+          {/* Only where there is a keyboard to press them on. */}
+          <dl className="mt-3 hidden flex-wrap items-center gap-x-3 gap-y-1.5 text-muted-foreground text-xs [@media(hover:hover)]:flex">
+            {KEYS.map(([key, does]) => (
+              <div key={key} className="flex items-center gap-1.5">
                 <dt>
-                  <Kbd>1</Kbd>–<Kbd>9</Kbd>
+                  <Kbd>{key}</Kbd>
                 </dt>
-                <dd>choose in an open menu</dd>
+                <dd>{does}</dd>
               </div>
-            </dl>
-            <div className="mt-4">
-              <LabelChoicesProvider choices={labelChoices(store)}>
-                <LibraryList
-                  key={search}
-                  initialItems={page.items.map((item) => toItemView(item))}
-                  initialCursor={page.nextCursor}
-                  search={search}
-                  ranked={false}
-                  total={page.total}
-                />
-              </LabelChoicesProvider>
+            ))}
+            <div className="flex items-center gap-1.5">
+              <dt>
+                <Kbd>1</Kbd>–<Kbd>9</Kbd>
+              </dt>
+              <dd>choose in an open menu</dd>
             </div>
-          </>
-        )}
+          </dl>
+          <div className="mt-4">
+            <LabelChoicesProvider choices={labelChoices(store)}>
+              <LibraryList
+                initialItems={page.items.map((item) => toItemView(item))}
+                initialCursor={page.nextCursor}
+                search={search}
+                ranked={false}
+                total={page.total}
+              />
+            </LabelChoicesProvider>
+          </div>
+        </Listing>
       </Column>
     </Shell>
   );

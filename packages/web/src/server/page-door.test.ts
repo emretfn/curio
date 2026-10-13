@@ -1,6 +1,11 @@
 import { expect, test } from "vitest";
 import { refuseUnlessExtension } from "./guard.ts";
-import { MAX_PAGE_WRITE_BYTES, refuseUnlessOwnPage } from "./page-door.ts";
+import {
+  MAX_PAGE_WRITE_BYTES,
+  readPageBody,
+  refuseUnlessOwnPage,
+  tooLarge,
+} from "./page-door.ts";
 import { extensionRequest, pageRequest, TOKEN } from "./testing.ts";
 
 const CHANGE = "/api/owner/correct";
@@ -125,4 +130,65 @@ test("neither door opens to what the other lets in", async () => {
   expect(
     ((await refuseUnlessExtension(fromPage, TOKEN)) as Response).status,
   ).toBe(403);
+});
+
+/** A request whose body arrives in pieces and declares no length, and how much of it was taken. */
+function inPieces(pieces: number, bytesEach: number) {
+  let taken = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (taken === pieces) return controller.close();
+      taken += 1;
+      controller.enqueue(new Uint8Array(bytesEach).fill(0x20));
+    },
+  });
+  const request = new Request("http://127.0.0.1:47130/api/owner/correct", {
+    method: "POST",
+    headers: pageRequest("/api/owner/correct", "{}").headers,
+    body,
+    duplex: "half",
+  } as RequestInit);
+  return { request, taken: () => taken };
+}
+
+test("a body sent in pieces, with no length declared, is read no further than a change can be long", async () => {
+  const kilobyte = 1024;
+  const endless = inPieces(100_000, kilobyte);
+  // The door reads headers, and this body declares nothing in them.
+  expect(endless.request.headers.get("content-length")).toBeNull();
+  expect(refuseUnlessOwnPage(endless.request)).toBeNull();
+
+  expect(await readPageBody(endless.request)).toBeNull();
+
+  // A hundred megabytes were on offer. What was taken is the limit and the
+  // piece that passed it, with whatever the stream had drawn ahead.
+  expect(endless.taken()).toBeLessThan(MAX_PAGE_WRITE_BYTES / kilobyte + 8);
+  expect(tooLarge().status).toBe(413);
+});
+
+test("a body within the limit is read whole, in pieces or in one, and none is an empty one", async () => {
+  const small = inPieces(3, 4);
+  expect(await readPageBody(small.request)).toBe(" ".repeat(12));
+  expect(small.taken()).toBe(3);
+  expect(
+    await readPageBody(pageRequest("/api/owner/correct", '{"postId":"ı"}')),
+  ).toBe('{"postId":"ı"}');
+  expect(
+    await readPageBody(
+      new Request("http://127.0.0.1:47130/api/owner/correct", {
+        method: "POST",
+      }),
+    ),
+  ).toBe("");
+  // Exactly the limit is a change; one byte more is not.
+  const exactly = pageRequest(
+    "/api/owner/correct",
+    "x".repeat(MAX_PAGE_WRITE_BYTES),
+  );
+  expect((await readPageBody(exactly))?.length).toBe(MAX_PAGE_WRITE_BYTES);
+  const over = pageRequest(
+    "/api/owner/correct",
+    "x".repeat(MAX_PAGE_WRITE_BYTES + 1),
+  );
+  expect(await readPageBody(over)).toBeNull();
 });

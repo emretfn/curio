@@ -19,6 +19,8 @@ import { parseLibraryParams, toLibraryQuery } from "./library-params.ts";
 export interface LibraryPageAnswer {
   items: ItemView[];
   nextCursor: string | null;
+  /** How many items the query matches now. Sent back as `seen` with the next page asked for. */
+  total: number;
 }
 
 /** The three shapes `listLibrary` gives a cursor: by time, in a search, among the withheld. */
@@ -49,12 +51,18 @@ export function handleLibraryPage(request: Request, store: Store): Response {
   if (asked !== null && !/^[1-9][0-9]{0,3}$/.test(asked)) {
     return refusal(400, "The limit is not a number of items.");
   }
+  // How many items the reader's last page said there were. See `PageRequest.seen`.
+  const seen = search.get("seen");
+  if (seen !== null && !/^[0-9]{1,9}$/.test(seen)) {
+    return refusal(400, "What was seen is not a number of items.");
+  }
   const query = toLibraryQuery(parseLibraryParams(search));
   let page: LibraryPage;
   try {
     page = listLibrary(store, query, {
       after,
       limit: asked === null ? undefined : Number(asked),
+      seen: seen === null ? undefined : Number(seen),
     });
   } catch (error) {
     // A cursor of the right shape that belongs to another kind of list.
@@ -64,6 +72,7 @@ export function handleLibraryPage(request: Request, store: Store): Response {
   const answer: LibraryPageAnswer = {
     items: page.items.map((item) => toItemView(item, page.terms)),
     nextCursor: page.nextCursor,
+    total: page.total,
   };
   return Response.json(answer, { headers: { "cache-control": "no-store" } });
 }

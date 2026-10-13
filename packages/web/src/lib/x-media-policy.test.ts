@@ -190,7 +190,8 @@ test("the browser asks this app for data in one place and sends it a change in o
     "src/lib/owner-write.ts",
   ]);
   const loadMore = sources.find(({ file }) => file.endsWith("load-more.ts"));
-  expect(loadMore?.source).toMatch(/fetc[h]\(`\/api\/library\?/);
+  expect(loadMore?.source).toMatch(/fetc[h]\(nextPageAddress\(/);
+  expect(loadMore?.source).toMatch(/return `\/api\/library\?\$\{query\}`;/);
   const ownerWrite = sources.find(({ file }) =>
     file.endsWith("lib/owner-write.ts"),
   );

@@ -105,13 +105,17 @@ export function Reference({ post }: { post: PostReference }) {
   const row =
     "flex min-w-0 items-baseline gap-2 py-1 text-[0.8125rem] leading-snug";
   if (!post.listed) {
-    // No longer in the week's list: removed on X since the digest was
-    // written. The library still holds it; there is nowhere here to lead.
+    // Not in the week's list, for one of two reasons that are not alike:
+    // removed on X since the digest was written, or further down a long
+    // week than the page lists. The library holds it either way; there is
+    // nowhere here to lead.
     return (
-      <p className={cn(row, "flex-wrap")}>
+      <p className={cn(row, "flex-wrap")} data-unlisted={post.id}>
         {line}
         <span className="shrink-0 text-muted-foreground text-xs">
-          Removed on X since, so not listed below
+          {post.removedOnX
+            ? "Removed on X since, so not listed below"
+            : "Further down the week than the posts listed below"}
         </span>
       </p>
     );

@@ -55,6 +55,12 @@ export interface PostReference {
   opening: string;
   /** Whether the post is listed on this page, under this id. */
   listed: boolean;
+  /**
+   * Whether the bookmark was removed on X. One that was is in no list; one
+   * that was not and is still not listed is further down the week than the
+   * page goes.
+   */
+  removedOnX: boolean;
 }
 
 /** The summary of the week as written, with the bookmarks it points at resolved. */
@@ -107,7 +113,7 @@ export interface DigestPage {
   weeks: WeekLink[];
 }
 
-function everyBookmarkOf(store: Store, week: Week): Bookmark[] {
+function everyBookmarkOf(store: Store, week: Week, shown: number): Bookmark[] {
   const bookmarks: Bookmark[] = [];
   let after: string | undefined;
   do {
@@ -119,8 +125,8 @@ function everyBookmarkOf(store: Store, week: Week): Bookmark[] {
     });
     bookmarks.push(...page.bookmarks);
     after = page.nextCursor ?? undefined;
-  } while (after !== undefined && bookmarks.length < WEEK_POSTS_SHOWN);
-  return bookmarks.slice(0, WEEK_POSTS_SHOWN);
+  } while (after !== undefined && bookmarks.length < shown);
+  return bookmarks.slice(0, shown);
 }
 
 const referenceTo = (bookmark: Bookmark, listed: boolean): PostReference => ({
@@ -134,6 +140,7 @@ const referenceTo = (bookmark: Bookmark, listed: boolean): PostReference => ({
     REFERENCE_CHARACTERS,
   ),
   listed,
+  removedOnX: bookmark.removedOnXAt !== null,
 });
 
 /**
@@ -173,10 +180,18 @@ function writtenView(
   };
 }
 
-/** Everything the digest page shows for a week. */
-export function getDigestPage(store: Store, week: Week, now: Date): DigestPage {
+/**
+ * Everything the digest page shows for a week. `postsShown` is how many of
+ * the week's posts it lists, which only a test has reason to give.
+ */
+export function getDigestPage(
+  store: Store,
+  week: Week,
+  now: Date,
+  postsShown: number = WEEK_POSTS_SHOWN,
+): DigestPage {
   const summary = summariseWeek(store, week);
-  const bookmarks = everyBookmarkOf(store, week);
+  const bookmarks = everyBookmarkOf(store, week, postsShown);
   const listed = new Map(
     bookmarks.map((bookmark) => [bookmark.postId, bookmark]),
   );

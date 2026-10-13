@@ -188,3 +188,15 @@ test("core's writing functions are named in the modules behind the doors, and in
     "server/owner-writes.ts",
   ]);
 });
+
+test("a screen that could not be drawn says so in the app's own words, and never in the error's", () => {
+  // A page is read again from the server after every change. When that
+  // reading throws, this is what stands in the page's place.
+  const screen = read("app/error.tsx");
+
+  expect(screen).toMatch(/^"use client";/);
+  expect(screen).toMatch(/retry\(\)/);
+  // The error's message can quote what the server was working on.
+  expect(screen).not.toMatch(/error\.(?:message|stack|cause|name)\b/);
+  expect(screen).toMatch(/error\.digest/);
+});

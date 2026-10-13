@@ -14,7 +14,13 @@ test("before anything is classified there is nothing proposed, and the vocabular
   });
   expect(screen.tags.length).toBeGreaterThan(20);
   for (const tag of screen.tags) {
-    expect(tag).toMatchObject({ bookmarks: 0, addedByOwner: false });
+    expect(tag).toMatchObject({ bookmarks: 0 });
+    // Only what the screen shows of a tag is sent to it.
+    expect(Object.keys(tag).toSorted()).toEqual([
+      "aliases",
+      "bookmarks",
+      "tag",
+    ]);
   }
 });
 
@@ -55,16 +61,13 @@ test("the vocabulary is listed most used first, with the other ways each tag is 
     tag: "react",
     bookmarks: 2,
     aliases: ["reactjs"],
-    addedByOwner: false,
   });
   expect(tags.map(({ bookmarks }) => bookmarks)).toEqual(
     tags.map(({ bookmarks }) => bookmarks).toSorted((a, b) => b - a),
   );
   expect(tags.map(({ tag }) => tag)).not.toContain("mcp");
   // How many bookmarks would have it back.
-  expect(retired).toEqual([
-    { tag: "mcp", bookmarks: 1, aliases: [], addedByOwner: false },
-  ]);
+  expect(retired).toEqual([{ tag: "mcp", bookmarks: 1, aliases: [] }]);
 });
 
 test.each([
