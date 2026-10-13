@@ -12,6 +12,7 @@ import {
   finishTaggingRun,
   getOpenTaggingRun,
   getTaggingRun,
+  INSTRUCTIONS_VERSION,
   listClassificationCandidates,
   listTaggingRuns,
   MAX_CLASSIFICATION_ATTEMPTS,
@@ -457,6 +458,27 @@ test("the summary says how the tagging stands, and keeps the two kinds of other 
   expect(summariseTagging(store, { instructionsVersion: 2 }).outdated).toBe(7);
 });
 
+test("what is outdated is counted against the current instructions unless another version is named", () => {
+  const store = library(3);
+  // One classified by the instructions before these, two by the current ones.
+  classify(store, 1, { instructionsVersion: INSTRUCTIONS_VERSION - 1 });
+  classify(store, 2, { instructionsVersion: INSTRUCTIONS_VERSION });
+  classify(store, 3, { instructionsVersion: INSTRUCTIONS_VERSION });
+
+  // Asked with no version, as a status screen asks: the answer is the true one.
+  expect(summariseTagging(store).outdated).toBe(1);
+  expect(
+    listClassificationCandidates(store, { which: "outdated" }).bookmarks.map(
+      ({ postId: id }) => id,
+    ),
+  ).toEqual([postId(1)]);
+  expect(
+    summariseTagging(store, { instructionsVersion: INSTRUCTIONS_VERSION + 1 })
+      .outdated,
+  ).toBe(3);
+  expect(INSTRUCTIONS_VERSION).toBeGreaterThan(1);
+});
+
 test("an empty library summarises to nothing, with no share to divide", () => {
   expect(summariseTagging(openTempStore())).toMatchObject({
     bookmarks: 0,
@@ -516,7 +538,7 @@ test("a bookmark classified before a tag existed is behind the vocabulary, and w
     ids: [postId(4), postId(2), postId(1)],
   });
   expect(candidates(store, { which: "behind-vocabulary" }).total).toBe(7);
-  expect(summariseTagging(store)).toMatchObject({
+  expect(summariseTagging(store, { instructionsVersion: 1 })).toMatchObject({
     behindVocabulary: 7,
     mentioningNewTags: 3,
     outdated: 0,

@@ -5,6 +5,16 @@
  * starts, a little after captures arrive, and once an hour; each call is
  * one pass.
  *
+ * A pass spends the owner's money with no one watching, so it is the
+ * owner's to allow, and until they have it does nothing. The first thing a
+ * pass does is ask `appTagging`, which reads one line of the `.env` file
+ * the owner writes by hand. Without that line the pass counts what is
+ * waiting, which is a query of the library, and returns `off`: it does not
+ * open the key, does not load the client (this module imports the client
+ * and the run only once a pass is allowed and has something to do, so an
+ * app whose tagging is off never holds the code that sends), and does not
+ * collect a batch. Nothing in the app can write that line.
+ *
  * A pass is small and careful with money on purpose. It does two things and
  * no third. It classifies bookmarks that have no answer yet. And it asks
  * again about bookmarks classified before a tag joined the vocabulary whose
@@ -26,15 +36,20 @@ import {
   listTaggingRuns,
   type Store,
 } from "@x-bookmarks/core";
-import { type Claude, createClaude } from "./anthropic.ts";
+// Types alone from the client and the run: both are loaded inside a pass
+// that is allowed to send, and not before. boundary.test.ts pins it.
+import type { Claude } from "./anthropic.ts";
 import {
   ApiKeyUnavailable,
+  appTagging,
   envFilePath,
   readApiKey,
   standardKeyWarning,
 } from "./api-key.ts";
 import { INSTRUCTIONS_VERSION } from "./instructions.ts";
-import { runTagging, type TaggingReport } from "./run.ts";
+import type { TaggingReport } from "./run.ts";
+
+export { type AppTagging, appTagging } from "./api-key.ts";
 
 /** More unclassified bookmarks than this is a backlog, which a pass leaves to the owner. */
 export const BACKLOG_LIMIT = 150;
@@ -47,13 +62,16 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** What a pass came to. `message` is fit to show: it holds no post and no key. */
 export interface AutomaticPass {
   /**
-   * `ran`: the classifier ran; `reports` say what it did. `nothing-to-do`:
-   * no bookmark is waiting. `no-key`: there is no usable API key, so
-   * tagging is off. `backlog`: too many are waiting for a pass, and the
-   * owner starts the run. `daily-cap`: the app's passes have spent their
-   * day's allowance. `error`: the pass itself broke.
+   * `off`: the owner has not turned the app's own tagging on, so the pass
+   * looked at nothing but the count and sent nothing. `ran`: the classifier
+   * ran; `reports` say what it did. `nothing-to-do`: no bookmark is
+   * waiting. `no-key`: tagging by the app is on and there is no usable API
+   * key. `backlog`: too many are waiting for a pass, and the owner starts
+   * the run. `daily-cap`: the app's passes have spent their day's
+   * allowance. `error`: the pass itself broke.
    */
   status:
+    | "off"
     | "ran"
     | "nothing-to-do"
     | "no-key"
@@ -113,6 +131,14 @@ export async function tagNewBookmarks(
     const unclassified = count("unclassified");
     const mentioning = count("new-tags");
     waiting = unclassified + mentioning;
+    // Before anything else: has the owner allowed the app to tag by itself?
+    const allowed = appTagging(envFile);
+    if (!allowed.on) {
+      return pass(
+        "off",
+        `${allowed.message}${waiting === 0 ? "" : ` Waiting now: ${waiting} ${waiting === 1 ? "bookmark" : "bookmarks"}.`}`,
+      );
+    }
     // A batch the owner's run left waiting is collected by a pass too: its
     // results are paid for, and reading them costs nothing.
     const batchWaiting = getOpenTaggingRun(store)?.batchId != null;
@@ -148,9 +174,13 @@ export async function tagNewBookmarks(
       if (!(error instanceof ApiKeyUnavailable)) throw error;
       return pass("no-key", error.message);
     }
-    const claude = (
-      options.connect ?? ((key) => createClaude({ apiKey: key }))
-    )(apiKey);
+    const { runTagging } = await import("./run.ts");
+    let connect = options.connect;
+    if (connect === undefined) {
+      const { createClaude } = await import("./anthropic.ts");
+      connect = (key) => createClaude({ apiKey: key });
+    }
+    const claude = connect(apiKey);
     const run = async (mode: "untagged" | "new-tags") => {
       const used = reports.reduce((sum, { costUsd }) => sum + costUsd, 0);
       const report = await runTagging(store, {

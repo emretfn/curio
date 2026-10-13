@@ -421,7 +421,7 @@ function stored(text: unknown, limit: number, name: string): string {
 /**
  * A digest checked for storing. A bookmark it names must be one the run
  * sent: this is the one place a model's pointer at a bookmark is believed,
- * and it is believed only against the run's own list (AI-12). The same
+ * and it is believed only against the run's own list (AI-13). The same
  * bookmark is kept once within a theme and once among those worth going
  * back to.
  */

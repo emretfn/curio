@@ -11,6 +11,10 @@
   __REPO__  the absolute path of this repo
   __HOME__  your home directory, for the log
 
+  It is not the app's own tagging, and X_BOOKMARKS_APP_TAGGING in .env does
+  not switch it: installing this file is what turns it on, and removing it is
+  what turns it off.
+
   It spends money each week it writes a digest: at most the cap below, a few
   cents as a rule. A week that already has its digest, or holds fewer than
   three bookmarks, costs nothing. Asleep at 21:00, the Mac runs it on waking;

@@ -12,7 +12,7 @@ import {
   upsertBookmark,
 } from "@x-bookmarks/core";
 import { openTempStore, tempDatabasePath } from "@x-bookmarks/core/testing";
-import { ENV_FILE, KEY_VARIABLE } from "../api-key.ts";
+import { APP_TAGGING_VARIABLE, ENV_FILE, KEY_VARIABLE } from "../api-key.ts";
 import { FAKE_KEY } from "./fake-api.ts";
 
 export const postId = (n: number) => String(1975000000000000000n + BigInt(n));
@@ -73,20 +73,31 @@ export function library(count = 0): TestLibrary {
   return made;
 }
 
+/** The line of the `.env` file with which the owner lets the app tag by itself. */
+export const APP_TAGGING_ON = `${APP_TAGGING_VARIABLE}=on\n`;
+
 /**
  * Puts a `.env` file holding a key in `directory`, as the owner would: the
  * key under this project's variable, the file readable by its owner alone.
- * `content` writes something else in the file's place.
+ * `appTagging` adds the line that lets the app tag by itself, which the
+ * file does not hold otherwise. `content` writes something else in the
+ * file's place.
  */
 export function writeKey(
   directory: string,
-  options: { key?: string; mode?: number; content?: string } = {},
+  options: {
+    key?: string;
+    mode?: number;
+    appTagging?: boolean;
+    content?: string;
+  } = {},
 ): string {
   mkdirSync(directory, { recursive: true });
   const path = join(directory, ENV_FILE);
   writeFileSync(
     path,
-    options.content ?? `${KEY_VARIABLE}=${options.key ?? FAKE_KEY}\n`,
+    options.content ??
+      `${KEY_VARIABLE}=${options.key ?? FAKE_KEY}\n${options.appTagging === true ? APP_TAGGING_ON : ""}`,
     { mode: 0o600 },
   );
   chmodSync(path, options.mode ?? 0o600);

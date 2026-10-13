@@ -27,7 +27,7 @@ Nothing loads `.env` into a process's environment. Next.js loads `.env` files fr
 ```
 pnpm tag --dry-run        # what a run would send and cost. No request, no key, no change.
 pnpm tag --sample 50      # classify 50 bookmarks drawn from across the library
-pnpm tag --status         # how the tagging stands: classified, waiting, failed, the share of "other"
+pnpm tag --status         # how the tagging stands: classified, waiting, failed, outdated, the share of "other", and whether the app may tag by itself
 pnpm tag                  # classify everything not classified yet
 pnpm tag --retag          # classify again what an older taxonomy or older instructions classified
 pnpm tag --new-tags       # ask about bookmarks that mention a tag added since they were classified
@@ -82,9 +82,25 @@ Direct is the default because it is the cheaper of the two as they are sent here
 
 Both carry the same request, with the same output schema. Anthropic's documentation says structured outputs work in batches; that had not been tried from here when this was written. If a batch comes back with every request rejected, the run says so and marks no bookmark as failed.
 
-## New bookmarks
+## New bookmarks: by hand, unless you let the app
 
-Once the library has been classified, new bookmarks need no command. The app asks for a pass (`tagNewBookmarks` in `src/automatic.ts`) as it starts, a minute after the last capture of a burst is stored, and once an hour. A pass:
+**By itself the app sends nothing to the API and spends nothing.** Every request the classifier makes is one you started with `pnpm tag`, until you say otherwise. New bookmarks are stored and searchable as always and wait unclassified; `pnpm tag` classifies what is waiting, and `pnpm tag --new-tags` asks about tags added since. `pnpm tag --status` says how many are waiting.
+
+To let the app keep up by itself, add one line to the same `.env` file, in an editor:
+
+```
+X_BOOKMARKS_APP_TAGGING=on
+```
+
+Remove the line, or set it to anything else, to turn it off again. Either way it takes effect at the app's next pass, with no restart.
+
+- **Only you can set it.** It is a line of a file you edit by hand. Nothing in the repo writes that file; no page, route, MCP tool or argument turns the app's tagging on, and `GET /api/tagging` only reports it. A switch on a page is one any script on that page could flip.
+- **Only the word `on` turns it on.** No file, no line, an empty value, `true`, `1`, or two lines that disagree: all off. It is read from the file and never from an environment.
+- **A key is not a yes.** With a key in place and this line absent, the app still sends nothing. The key is what your own runs use.
+- **Off means nothing is sent.** A pass counts what is waiting, which is a query of the library, and answers `off`, saying how to turn it on and which commands do the same by hand. It does not open the key, collect a batch your run left waiting, or even load the client: `src/automatic.ts` imports the client and the run only inside a pass that is allowed and has something to send, and the app loads that file alone (`@x-bookmarks/tagger/automatic`).
+- **What is free still happens.** Accepting a proposed tag puts it on the bookmarks it was proposed for at once, on or off: that is a write to the database and no request. Only asking the bookmarks that merely mention the tag needs the classifier, and with the app's tagging off that is `pnpm tag --new-tags`.
+
+With the line in place, the app asks for a pass (`tagNewBookmarks` in `src/automatic.ts`) as it starts, a minute after the last capture of a burst is stored, and once an hour. A pass:
 
 - classifies bookmarks that have no answer yet;
 - then asks about bookmarks that mention a tag added since they were classified, and can only add that tag to them (see "Adding a tag" below);
@@ -93,7 +109,7 @@ Once the library has been classified, new bookmarks need no command. The app ask
 - gives up on a bookmark the model fails on twice;
 - never holds up a capture and never throws. With no key in `.env`, or with the API out of reach, the bookmarks are stored as always and stay unclassified until a pass succeeds.
 
-`GET /api/tagging` on the app says what the last pass came to.
+`GET /api/tagging` on the app says whether tagging by the app is on, with the same message as `pnpm tag --status` and `pnpm tag --check`, and what the last pass came to.
 
 ## Corrections and re-runs
 
@@ -124,7 +140,7 @@ The tags a bookmark can have are a vocabulary that you change while the app runs
 A bookmark classified before a tag existed was never asked about it. Three things could follow, and this is the one chosen:
 
 - The bookmarks the tag was **proposed for** get it at once, for nothing.
-- The bookmarks whose **text mentions** the tag, by its name or another way of writing it, are asked again in a small pass. The classifier is asked the usual question, and of its answer only tags the bookmark had never been offered are kept. Its category, its format, its other tags and your corrections cannot change, so nothing you have learnt to find moves. The app does this by itself within a minute, inside its usual caps; `pnpm tag --new-tags` does it on demand. It costs what classifying those bookmarks costs: about $0.00012 each, so a tag that forty bookmarks mention costs half a cent.
+- The bookmarks whose **text mentions** the tag, by its name or another way of writing it, are asked again in a small pass. The classifier is asked the usual question, and of its answer only tags the bookmark had never been offered are kept. Its category, its format, its other tags and your corrections cannot change, so nothing you have learnt to find moves. `pnpm tag --new-tags` does it; the app does it by itself within a minute, inside its usual caps, if you have turned its own tagging on (see "New bookmarks" above). It costs what classifying those bookmarks costs: about $0.00012 each, so a tag that forty bookmarks mention costs half a cent.
 - The **rest** are left alone. They are not outdated, and `--retag` does not take them. `pnpm tag --new-tags --every-bookmark` asks all of them, which is the price of classifying the library once more, about $0.17 for 1,400: worth doing after a batch of new tags, not after each.
 
 Retiring, renaming and merging need no pass at all.
@@ -160,7 +176,7 @@ A different question from the model's judgement is whether a post has little tex
 
 ## Changing the categories, the formats or the instructions
 
-Edit `TAXONOMY` in core and raise its `version`; or edit `src/instructions.ts` or `src/input.ts` and raise `INSTRUCTIONS_VERSION`. Two tests hold the fingerprint of each version and fail until the version is raised and the new fingerprint recorded. Nothing is classified again by the change alone: bookmarks classified before it are counted as outdated by `pnpm tag --status`, and `pnpm tag --retag` does them again when you choose.
+Edit `TAXONOMY` in core and raise its `version`; or edit `src/instructions.ts` or `src/input.ts` and raise `INSTRUCTIONS_VERSION`. That number is written in core (`packages/core/src/tagging.ts`) and re-exported here, because core's own counts need it: `summariseTagging` and `listClassificationCandidates` hold a classification outdated against it unless they are told another version, so every reader of the library, the app's status and the MCP server included, counts the same bookmarks as outdated that `pnpm tag --status` does. Two tests hold the fingerprint of each version and fail until the version is raised and the new fingerprint recorded. Nothing is classified again by the change alone: bookmarks classified before it are counted as outdated by `pnpm tag --status`, and `pnpm tag --retag` does them again when you choose.
 
 The instructions are at version 2. Version 1 classified the first 50 bookmarks; version 2 takes its tags from the vocabulary in the database, tells the model which proposals have already been made, and asks for a tool's plain name. So those 50 are outdated: `pnpm tag --retag` does them again for less than a cent, or they can stay as they are.
 
@@ -187,7 +203,7 @@ The first sample, 50 bookmarks sent one at a time, came back whole: 50 classifie
 
 ## The weekly digest
 
-The digest page (`/digest` in the app) shows each week of bookmarks: what was saved, counted by category, format and tag, the posts themselves, and what the classifier's answers suggest about the taxonomy. All of that is read from the library and costs nothing. `pnpm digest` adds the written part: Claude's summary of the week, its themes and which posts are worth going back to. That is one request to the Claude API for a week, it costs money, and nothing starts it but you: not the app, not a capture, not the MCP server.
+The digest page (`/digest` in the app) shows each week of bookmarks: what was saved, counted by category, format and tag, the posts themselves, and what the classifier's answers suggest about the taxonomy. All of that is read from the library and costs nothing. `pnpm digest` adds the written part: Claude's summary of the week, its themes and which posts are worth going back to. That is one request to the Claude API for a week, it costs money, and nothing starts it but you: not the app, not a capture, not the MCP server. The app's own tagging has a switch, `X_BOOKMARKS_APP_TAGGING`, because the app would otherwise act by itself; the digest has none, because the app never writes one, on or off. `pnpm digest` is yours to run either way, as `pnpm tag` is.
 
 It lives in this package, under `src/digest/`, because this is the one package that sends anything to Claude. It sends through the same client, `src/anthropic.ts`, to the same one host, with the same key from the same `.env` line.
 
@@ -238,6 +254,7 @@ launchctl bootout gui/$(id -u)/dev.x-bookmarks.digest
 rm ~/Library/LaunchAgents/dev.x-bookmarks.digest.plist
 ```
 
+- **It is the one thing that spends unattended with `X_BOOKMARKS_APP_TAGGING` off.** That line of `.env` is about what the app does by itself, and this job is not the app: it is a separate program that launchd starts, it does not read the line, and "off" there does not stop it. Nothing spends by itself as the repo is checked out: the app's tagging is off until you write that line, and this job does not exist until you run the commands above. Running them is how you say yes to it, and `launchctl bootout`, above, is how you say no. With neither the line nor the job, every request to the API is one you typed.
 - **What it spends.** At most $0.50 a week, which is its cap; by the estimates above about $0.03 to $0.16, so some $0.15 to $0.70 a month. Nothing in a week that holds fewer than three bookmarks, and nothing twice for one week.
 - **When the Mac is asleep at 21:00** launchd runs the job when it wakes, and the week it writes is still the one that ended. Switched off, that week is skipped; `pnpm digest --week <day>` writes it later.
 - **What it needs.** The key in `.env`, as for `pnpm tag`. Without one the job fails and says so in `~/Library/Logs/x-bookmarks-digest.log`, which holds what the command prints and nothing of a bookmark. The path of `node` is written into the installed file: after changing Node versions with a version manager, install it again.
@@ -245,8 +262,8 @@ rm ~/Library/LaunchAgents/dev.x-bookmarks.digest.plist
 
 ## Working on it
 
-`src/anthropic.ts` is the client and the only file that sends; `src/api-key.ts` reads the key from `.env`; `src/input.ts` is what is sent of a bookmark; `src/instructions.ts` the prompt and the schema, built from core's taxonomy and vocabulary; `src/request.ts` the request and the reading of an answer; `src/pricing.ts` the prices, the cap's arithmetic and the estimate; `src/transport.ts` the choice of route; `src/run.ts` a run; `src/automatic.ts` the app's pass; `src/report.ts` what is printed; `src/cli.ts` the command.
+`src/anthropic.ts` is the client and the only file that sends; `src/api-key.ts` reads the key from `.env`, and from the same file whether the app may tag by itself; `src/input.ts` is what is sent of a bookmark; `src/instructions.ts` the prompt and the schema, built from core's taxonomy and vocabulary; `src/request.ts` the request and the reading of an answer; `src/pricing.ts` the prices, the cap's arithmetic and the estimate; `src/transport.ts` the choice of route; `src/run.ts` a run; `src/automatic.ts` the app's pass, and the one entry the app loads; `src/report.ts` what is printed; `src/cli.ts` the command.
 
 The digest's files mirror those, under `src/digest/`: `input.ts` is what is sent of a week; `instructions.ts` the prompt, the answer's shape, the model and `DIGEST_INSTRUCTIONS_VERSION`; `request.ts` the request and the reading of an answer; `run.ts` the plan and a run; `report.ts` what is printed; `cli.ts` the command. What a digest is in the library, and the week it is of, are core's `src/digests.ts` and `src/weeks.ts`. Change the wording, the answer's shape, the limits or the model and `request.test.ts` fails until the version is raised and the new fingerprint recorded.
 
-`pnpm test packages/tagger` runs everything against the fake. `src/boundary.test.ts` reads the repo's source and fails if a second file imports the SDK, names the API's address or the key's variable, reads a key off an environment, or loads a `.env` file into one; if anything but the digest's own command can start a digest; or if the digest's files read a field of a bookmark beyond its id. The rules are AI-1 to AI-13 and LAB-1 to LAB-11 in `CODING_STANDARDS.md`. Never run `pnpm tag` or `pnpm digest` without `--dry-run` as part of development or a test: a run spends the owner's money.
+`pnpm test packages/tagger` runs everything against the fake. `src/boundary.test.ts` reads the repo's source and fails if a second file imports the SDK, names the API's address or the key's variable, reads a key off an environment, or loads a `.env` file into one; and if a second file names the setting for the app's own tagging, anything in the classifier writes a file, or the app's entry comes to load the client before a pass may send; and if anything but the digest's own command can start a digest, a file the app's entry reaches imports one of the digest's, or the digest's files read a field of a bookmark beyond its id. The rules are AI-1 to AI-14 and LAB-1 to LAB-11 in `CODING_STANDARDS.md`. Never run `pnpm tag` or `pnpm digest` without `--dry-run` as part of development or a test: a run spends the owner's money.

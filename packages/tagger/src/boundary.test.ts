@@ -6,7 +6,7 @@
  * a second way out. It is the mechanical half of the AI rules in
  * CODING_STANDARDS.md.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { expect, test } from "vitest";
 
@@ -27,7 +27,11 @@ function sourceFiles(directory: string = repoRoot): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
-      return SKIPPED.has(entry.name) ? [] : sourceFiles(path);
+      // A directory with a `.git` of its own is another checkout, such as a
+      // linked worktree. Its own run of this test reads it.
+      return SKIPPED.has(entry.name) || existsSync(join(path, ".git"))
+        ? []
+        : sourceFiles(path);
     }
     return /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|json)$/.test(entry.name) &&
       entry.name !== "pnpm-lock.yaml"
@@ -230,7 +234,11 @@ test("the example is committed without a value, and git ignores the real file an
     "\n",
   );
 
-  expect(settings).toEqual(["X_BOOKMARKS_ANTHROPIC_API_KEY="]);
+  // The switch for the app's own tagging is committed empty, which is off.
+  expect(settings).toEqual([
+    "X_BOOKMARKS_ANTHROPIC_API_KEY=",
+    "X_BOOKMARKS_APP_TAGGING=",
+  ]);
   expect(example).not.toMatch(/sk-ant-/);
   expect(ignored).toContain(".env");
   expect(ignored).toContain(".env.*");
@@ -241,11 +249,103 @@ test("the classifier is set going by its own command and by the app's tagging mo
   expect(dependingOn(/^@x-bookmarks\/tagger$/)).toEqual([
     "packages/web/package.json",
   ]);
+  const importing = (entry: string) =>
+    holding(
+      new RegExp(
+        `(?:from|import)\\s*\\(?\\s*(?:/\\*[^*]*\\*/\\s*)?["']@x-bookmarks/tagger${entry}["']`,
+      ),
+    );
+  // The app loads the entry that holds the pass and the owner's setting,
+  // and not the package's whole face, which holds the client.
+  expect(importing("/automatic")).toEqual([
+    "packages/web/src/server/tagging.ts",
+  ]);
+  expect(importing("(?:/[^\"']*)?")).toEqual([
+    "packages/web/src/server/tagging.ts",
+  ]);
+});
+
+test("the app's own tagging is switched by a line of the owner's file, which one function reads and nothing writes", () => {
+  // One source file names the setting. No page, route or component does, so
+  // none can read it another way, and there is nothing to set.
+  expect(holding(/X_BOOKMARKS_APP_TAGGING/)).toEqual([
+    "packages/tagger/src/api-key.ts",
+  ]);
+  const keyFile = readFileSync(join(import.meta.dirname, "api-key.ts"), "utf8");
+  expect(keyFile).toMatch(
+    /export const APP_TAGGING_VARIABLE = "X_BOOKMARKS_APP_TAGGING";/,
+  );
+  // It is read out of the file's text, by the function that reads the key's
+  // line, and never off an environment (the test above lists everything
+  // that file asks of one).
+  expect(keyFile.match(/APP_TAGGING_VARIABLE\)/g)).toEqual([
+    "APP_TAGGING_VARIABLE)",
+  ]);
+  expect(keyFile).toMatch(
+    /valuesOf\(readFileSync\(path, "utf8"\), APP_TAGGING_VARIABLE\)/,
+  );
+  expect(holding(/\[\s*APP_TAGGING_VARIABLE\s*\]/)).toEqual([]);
+  // Nothing in the classifier writes a file at all, the .env file least of
+  // all; and the one file that names it (pinned above) is in the classifier.
   expect(
     holding(
-      /(?:from|import)\s*\(?\s*(?:\/\*[^*]*\*\/\s*)?["']@x-bookmarks\/tagger["']/,
-    ),
-  ).toEqual(["packages/web/src/server/tagging.ts"]);
+      /writeFile|appendFile|createWriteStream|renameSync|copyFile|\bopenSync\b|\.open\(/,
+    ).filter((path) => path.startsWith("packages/tagger/")),
+  ).toEqual([]);
+  // The pass asks before it does anything but count.
+  const pass = readFileSync(join(import.meta.dirname, "automatic.ts"), "utf8");
+  const asks = pass.indexOf("appTagging(envFile)");
+  expect(asks).toBeGreaterThan(-1);
+  for (const later of [
+    "getOpenTaggingRun(store)",
+    "standardKeyWarning(envFile)",
+    "readApiKey(envFile)",
+    'import("./run.ts")',
+    'import("./anthropic.ts")',
+  ]) {
+    expect(pass.indexOf(later), later).toBeGreaterThan(asks);
+  }
+});
+
+test("the entry the app loads holds neither the client nor the run until a pass that may send loads them", () => {
+  const source = (name: string) =>
+    readFileSync(join(import.meta.dirname, name), "utf8");
+  /** The modules a file loads as it is loaded: its imports and re-exports, the type-only ones left out. */
+  const loads = (name: string) =>
+    [
+      ...source(name).matchAll(
+        /^(?:import|export)\s+(?!type\b)[^;]*?\bfrom\s+["']([^"']+)["']/gm,
+      ),
+    ].map((match) => match[1] ?? "");
+  const reached = new Set(["automatic.ts"]);
+  const outside = new Set<string>();
+  for (const name of reached) {
+    for (const specifier of loads(name)) {
+      if (specifier.startsWith("./")) reached.add(specifier.slice(2));
+      else outside.add(specifier);
+    }
+  }
+
+  expect([...reached].toSorted()).toEqual([
+    "api-key.ts",
+    "automatic.ts",
+    "instructions.ts",
+  ]);
+  expect([...outside].toSorted()).toEqual([
+    "@x-bookmarks/core",
+    "node:crypto",
+    "node:fs",
+    "node:path",
+  ]);
+  // And the two it loads later are loaded inside the pass, by name.
+  expect(source("automatic.ts").match(/import\("[^"]+"\)/g)).toEqual([
+    'import("./run.ts")',
+    'import("./anthropic.ts")',
+  ]);
+  const manifest = JSON.parse(
+    readFileSync(join(import.meta.dirname, "../package.json"), "utf8"),
+  ) as { exports: Record<string, string> };
+  expect(manifest.exports["./automatic"]).toBe("./src/automatic.ts");
 });
 
 test("the weekly digest is written by its own command and by nothing else: not the app, not the MCP server", () => {
@@ -272,6 +372,26 @@ test("the weekly digest is written by its own command and by nothing else: not t
   ).toEqual([]);
   const exported = readFileSync(join(import.meta.dirname, "index.ts"), "utf8");
   expect(exported).not.toMatch(/digest/i);
+  // Nor does the entry the app loads, `@x-bookmarks/tagger/automatic`: no
+  // file of the classifier imports one of the digest's, so nothing that
+  // entry reaches, at once or inside a pass, leads there. The digest
+  // imports the classifier's files, never the other way about.
+  expect(
+    holding(/["'](?:\.\.?\/)+(?:src\/)?digest\//).filter(
+      (path) =>
+        path.startsWith("packages/tagger/") &&
+        !path.startsWith("packages/tagger/src/digest/"),
+    ),
+  ).toEqual([]);
+  // The digest does not go by the app's setting: it is never the app's to
+  // write, so there is nothing for that line to switch. The one source
+  // file that names the setting is pinned above; no file of the digest
+  // reads it through the function either.
+  expect(
+    holding(/\bappTagging\b|APP_TAGGING/).filter((path) =>
+      path.startsWith("packages/tagger/src/digest/"),
+    ),
+  ).toEqual([]);
 });
 
 test("of a bookmark, the digest sends what the classifier's one function returns, and reads no field itself", () => {

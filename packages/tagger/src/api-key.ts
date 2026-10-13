@@ -1,6 +1,8 @@
 /**
  * The API key, and where it lives: one line of the `.env` file at the root
- * of the repo, which git ignores, under a name of this project's own.
+ * of the repo, which git ignores, under a name of this project's own. The
+ * same file holds the one setting that lets the app spend by itself
+ * (`appTagging`, at the end): this module is the only reader of the file.
  *
  * The name matters. The variable Anthropic's tools read by default,
  * `ANTHROPIC_API_KEY`, takes precedence over a Claude Code subscription
@@ -20,6 +22,11 @@ import { join, resolve } from "node:path";
 export const ENV_FILE = ".env";
 /** The variable the key is written under in that file. This project's own name, on purpose. */
 export const KEY_VARIABLE = "X_BOOKMARKS_ANTHROPIC_API_KEY";
+/**
+ * The variable that lets the app tag by itself, in the same file. Only the
+ * value `on` does; without the line the app sends nothing.
+ */
+export const APP_TAGGING_VARIABLE = "X_BOOKMARKS_APP_TAGGING";
 /** The variable Anthropic's own tools read. Never used here, and warned about wherever it is found. */
 const STANDARD_VARIABLE = "ANTHROPIC_API_KEY";
 
@@ -176,4 +183,47 @@ export function standardKeyWarning(
         ? "in this environment"
         : `in ${path}`;
   return `${STANDARD_VARIABLE} is set ${where}. It was not used: the classifier reads ${KEY_VARIABLE} from ${path} and nothing else. Claude Code does read ${STANDARD_VARIABLE}, and bills the API instead of your subscription wherever it is set: remove it.`;
+}
+
+/** Whether the app may tag by itself, and what to tell the owner about it. */
+export interface AppTagging {
+  on: boolean;
+  /** Fit to show: whether it is on, how to change that, and what does the same by hand. */
+  message: string;
+}
+
+/**
+ * Whether the owner has let the app tag by itself. The app's own passes
+ * spend the owner's money with no one watching, so they are off unless the
+ * owner turned them on, in the one place the owner puts things that matter:
+ * a line of the `.env` file, written by hand. Nothing in this repo writes
+ * that file, and no page, route or tool can change the answer. It is read
+ * from the file each time it is asked, so the owner's edit takes effect at
+ * the next pass, and never from an environment.
+ *
+ * Only `on` turns it on. A missing file, a missing line, an empty value,
+ * any other value, or two lines that disagree is off: a setting that spends
+ * money does not guess.
+ */
+export function appTagging(path: string = envFilePath()): AppTagging {
+  let values: string[] = [];
+  try {
+    values = valuesOf(readFileSync(path, "utf8"), APP_TAGGING_VARIABLE);
+  } catch {
+    // No file, or one that cannot be read: off.
+  }
+  const set = values.some((value) => value !== "");
+  const byHand =
+    "By hand, pnpm tag classifies what is waiting and pnpm tag --new-tags asks about tags added since.";
+  // Every line that sets it has to agree: two lines that differ are not a yes.
+  if (set && values.every((value) => value.toLowerCase() === "on")) {
+    return {
+      on: true,
+      message: `Tagging by the app is on: it classifies new bookmarks by itself, within the allowance of a pass and of a day. To turn it off, remove ${APP_TAGGING_VARIABLE}=on from ${path}. ${byHand}`,
+    };
+  }
+  return {
+    on: false,
+    message: `Tagging by the app is off: by itself the app sends nothing to the API and spends nothing.${set ? ` ${APP_TAGGING_VARIABLE} is set in ${path}, but only the value "on" turns it on.` : ""} To turn it on, add the line ${APP_TAGGING_VARIABLE}=on to ${path}; it takes effect at the app's next pass, with no restart. ${byHand}`,
+  };
 }

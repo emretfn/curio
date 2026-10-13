@@ -186,7 +186,9 @@ const MAKES_REQUESTS: Record<string, string> = {
   "packages/tagger/src/anthropic.test.ts":
     "Builds the client over the fake API, and watches that the platform's sender is never called when a test tries for the real one.",
   "packages/tagger/src/automatic.test.ts":
-    "Runs passes over the fake API, and one left to make its own client, which is refused under a test runner; the platform's sender is watched and never called.",
+    "Runs passes over the fake API, and one left to make its own client, which is refused under a test runner; the platform's sender is watched and never called. It also starts the script below as a child process.",
+  "packages/tagger/src/testing/what-a-pass-loads.ts":
+    "Run by automatic.test.ts as a process of its own: loads the classifier's entry for the app and makes one pass with the app's tagging off or with no key, to list the modules that loaded. Such a pass stops before the client is loaded, so nothing is sent.",
   "packages/tagger/src/testing/fake-api.ts":
     "A fake of the Claude API for the classifier's tests: a function with the shape of the platform's sender, with no network behind it.",
   "packages/tagger/src/boundary.test.ts":

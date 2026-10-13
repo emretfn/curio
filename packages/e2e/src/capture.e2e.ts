@@ -204,12 +204,26 @@ async function startApp(): Promise<void> {
   await waitFor("the app to listen", portIsOpen);
 }
 
-async function stopApp(): Promise<void> {
+/**
+ * Stops the app, by asking it to unless told otherwise. Asked, Next first
+ * waits for every connection to end, and late in a run the browser holds
+ * some open for as long as it lives: a test that restarts the app then
+ * says `SIGKILL`, which is also how an app that is killed stops.
+ */
+async function stopApp(
+  signal: "SIGTERM" | "SIGKILL" = "SIGTERM",
+): Promise<void> {
   const running = app;
   app = undefined;
-  if (running === undefined || running.exitCode !== null) return;
+  if (
+    running === undefined ||
+    running.exitCode !== null ||
+    running.signalCode !== null
+  ) {
+    return;
+  }
   const exited = new Promise((resolve) => running.once("exit", resolve));
-  running.kill("SIGTERM");
+  running.kill(signal);
   await exited;
   await waitFor("the app's port to close", async () => !(await portIsOpen()));
 }
@@ -2736,13 +2750,14 @@ test("with the setting on, media loads for the posts on screen and for no others
   await page.close();
 });
 
-test("with no API key the new bookmarks wait untagged, the app says why, and nothing was sent or spent", {
+test("the app tags nothing by itself until the owner's .env says so, and with that said and no API key the bookmarks still wait; nothing was sent or spent", {
   timeout: TEST_TIMEOUT_MS,
 }, async () => {
   // The app asks for a pass as it starts and a minute after a capture is
   // stored. By now it has made one over the bookmarks this run captured;
   // the wait is for a run that got here sooner.
   interface Status {
+    appTagging: { on: boolean; message: string };
     lastAttempt: {
       status: string;
       message: string;
@@ -2753,48 +2768,109 @@ test("with no API key the new bookmarks wait untagged, the app says why, and not
     } | null;
     library: { classified: number; unclassified: number; spentUsd: number };
   }
-  const status = await waitFor<Status>(
-    "a tagging pass over the stored bookmarks",
-    async () => {
-      const answer = await requestToApp("GET", "/api/tagging");
-      if (answer.status !== 200) return false;
-      const read = JSON.parse(answer.body) as Status;
-      return read.lastAttempt?.status === "no-key" ? read : false;
-    },
-    100_000,
-  );
+  const passThatCameTo = (wanted: string) =>
+    waitFor<Status>(
+      `a tagging pass that came to "${wanted}"`,
+      async () => {
+        const answer = await requestToApp("GET", "/api/tagging");
+        if (answer.status !== 200) return false;
+        const read = JSON.parse(answer.body) as Status;
+        return read.lastAttempt?.status === wanted ? read : false;
+      },
+      100_000,
+    );
+  const envFile = join(dataDirectory, ".env");
   store ??= openStore(join(dataDirectory, "bookmarks.db"));
-  const standing = summariseTagging(store);
+  const untouched = (status: Status) => {
+    const standing = summariseTagging(store as Store);
+    assert.equal(status.lastAttempt?.problem, false);
+    assert.ok((status.lastAttempt?.waiting ?? 0) >= 5);
+    assert.equal(status.lastAttempt?.classified, 0);
+    assert.equal(status.lastAttempt?.costUsd, 0);
+    assert.deepEqual(status.library, {
+      ...status.library,
+      classified: 0,
+      unclassified: standing.bookmarks,
+      spentUsd: 0,
+    });
+    assert.ok(standing.bookmarks >= 5);
+    assert.deepEqual(listTaggingRuns(store as Store), []);
+  };
 
-  // Tagging is off, which is a state and not a failure, and it cost the
-  // captures nothing: every test above ran with it in this state.
-  assert.equal(status.lastAttempt?.problem, false);
-  assert.match(
-    status.lastAttempt?.message ?? "",
-    /X_BOOKMARKS_ANTHROPIC_API_KEY/,
+  // As installed, with nothing said: tagging by the app is off, which is a
+  // state and not a failure, and every test above ran with it in this state.
+  const off = await passThatCameTo("off");
+
+  assert.equal(off.appTagging.on, false);
+  for (const said of [off.appTagging.message, off.lastAttempt?.message ?? ""]) {
+    assert.match(said, /^Tagging by the app is off/);
+    // How to turn it on, in which file, and what does the same by hand.
+    assert.ok(
+      said.includes(`add the line X_BOOKMARKS_APP_TAGGING=on to ${envFile}`),
+      "it says how to turn it on, beside this run's data and not in the repo",
+    );
+    assert.match(said, /pnpm tag classifies what is waiting/);
+    assert.match(said, /pnpm tag --new-tags/);
+  }
+  untouched(off);
+  // With its data directory moved, the app looks for the .env file there,
+  // never at the repo's root, where the owner's is; and it makes none.
+  assert.equal(existsSync(envFile), false, "the app does not create the file");
+
+  // No request turns it on: the route has no way in but GET, and what a
+  // GET carries changes nothing.
+  const posted = await requestToApp(
+    "POST",
+    "/api/tagging",
+    JSON.stringify({ appTagging: "on" }),
+    { "content-type": "application/json" },
   );
-  assert.ok((status.lastAttempt?.waiting ?? 0) >= 5);
-  assert.equal(status.lastAttempt?.classified, 0);
-  assert.equal(status.lastAttempt?.costUsd, 0);
-  assert.deepEqual(status.library, {
-    ...status.library,
-    classified: 0,
-    unclassified: standing.bookmarks,
-    spentUsd: 0,
-  });
-  assert.ok(standing.bookmarks >= 5);
-  assert.deepEqual(listTaggingRuns(store), []);
-  // With its data directory moved, the app looks for the key's .env file
-  // there, never at the repo's root, where the owner's is; and it makes none.
-  assert.equal(
-    existsSync(join(dataDirectory, ".env")),
-    false,
-    "the app does not create a key file",
+  assert.equal(posted.status, 405);
+  const asked = await requestToApp(
+    "GET",
+    "/api/tagging?appTagging=on&X_BOOKMARKS_APP_TAGGING=on",
   );
+  assert.equal(asked.status, 200);
+  const still = JSON.parse(
+    (await requestToApp("GET", "/api/tagging")).body,
+  ) as Status;
+  assert.equal(still.appTagging.on, false);
+  assert.equal(existsSync(envFile), false);
+
+  // The owner writes the line, by hand, in their own file, and the app
+  // reads it there as it stands: the status says so with nothing restarted.
+  writeFileSync(envFile, "X_BOOKMARKS_APP_TAGGING=on\n", { mode: 0o600 });
+  const edited = JSON.parse(
+    (await requestToApp("GET", "/api/tagging")).body,
+  ) as Status;
+  assert.equal(edited.appTagging.on, true);
+  assert.equal(edited.lastAttempt?.status, "off", "no pass has run since");
+
+  // The next pass is the one an app makes as it starts. There is still no
+  // key, so there is still nothing to send with, and the pass says that now.
+  await stopApp("SIGKILL");
+  await startApp();
+  const on = await passThatCameTo("no-key");
+
+  assert.equal(on.appTagging.on, true);
+  assert.match(on.appTagging.message, /^Tagging by the app is on/);
+  assert.match(on.lastAttempt?.message ?? "", /X_BOOKMARKS_ANTHROPIC_API_KEY/);
   assert.ok(
-    status.lastAttempt?.message.includes(join(dataDirectory, ".env")),
+    on.lastAttempt?.message.includes(envFile),
     "the app looked for the key beside this run's data, not in the repo",
   );
+  untouched(on);
+  assert.equal(
+    readFileSync(envFile, "utf8"),
+    "X_BOOKMARKS_APP_TAGGING=on\n",
+    "the app leaves the owner's file as the owner wrote it",
+  );
+  // Back to how the run found it, for whatever is tested after this.
+  rmSync(envFile);
+  const removed = JSON.parse(
+    (await requestToApp("GET", "/api/tagging")).body,
+  ) as Status;
+  assert.equal(removed.appTagging.on, false);
 
   // Another site's page cannot read the status either.
   const fromElsewhere = await requestToApp("GET", "/api/tagging", undefined, {

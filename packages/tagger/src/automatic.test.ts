@@ -1,4 +1,8 @@
+import { spawnSync } from "node:child_process";
+import { chmodSync } from "node:fs";
+import { join } from "node:path";
 import {
+  acceptTagProposal,
   addTag,
   finishTaggingRun,
   getOpenTaggingRun,
@@ -17,7 +21,12 @@ import {
 } from "./automatic.ts";
 import { runTagging } from "./run.ts";
 import { FAKE_KEY, type FakeApiOptions, fakeApi } from "./testing/fake-api.ts";
-import { library, type TestLibrary, writeKey } from "./testing/library.ts";
+import {
+  APP_TAGGING_ON,
+  library,
+  type TestLibrary,
+  writeKey,
+} from "./testing/library.ts";
 
 function setup(lib: TestLibrary, options: FakeApiOptions = {}) {
   const api = fakeApi(options);
@@ -38,9 +47,247 @@ function setup(lib: TestLibrary, options: FakeApiOptions = {}) {
   };
 }
 
+test("unless the owner has turned it on, a pass sends nothing, does not open the key, and says how to turn it on", async () => {
+  // The key is in place and bookmarks are waiting: everything a pass needs
+  // but the owner's word.
+  const lib = library(3);
+  writeKey(lib.directory);
+  const { api, keys, pass } = setup(lib);
+  const platform = vi.spyOn(globalThis, "fetch");
+
+  const result = await pass();
+
+  expect(result).toMatchObject({
+    status: "off",
+    waiting: 3,
+    reports: [],
+    warning: null,
+  });
+  expect(result.message).toMatch(/^Tagging by the app is off/);
+  // How to turn it on, where, and what does the same by hand.
+  expect(result.message).toContain(
+    `add the line X_BOOKMARKS_APP_TAGGING=on to ${lib.envFile}`,
+  );
+  expect(result.message).toContain("pnpm tag classifies what is waiting");
+  expect(result.message).toContain("pnpm tag --new-tags");
+  expect(result.message).toContain("Waiting now: 3 bookmarks.");
+  expect(result.message).not.toContain(FAKE_KEY);
+  expect(api.sent).toEqual([]);
+  expect(keys).toEqual([]);
+  expect(platform).not.toHaveBeenCalled();
+  expect(listTaggingRuns(lib.store)).toEqual([]);
+  expect(summariseTagging(lib.store)).toMatchObject({
+    unclassified: 3,
+    spentUsd: 0,
+  });
+  platform.mockRestore();
+});
+
+test("with no .env file at all the app's tagging is off, not missing a key", async () => {
+  const lib = library(2);
+  const { api, pass } = setup(lib);
+
+  const result = await pass();
+
+  expect(result.status).toBe("off");
+  expect(result.message).not.toMatch(/API key/);
+  expect(api.sent).toEqual([]);
+});
+
+test.each([
+  ["an empty value", "X_BOOKMARKS_APP_TAGGING=\n"],
+  ["off", "X_BOOKMARKS_APP_TAGGING=off\n"],
+  ["true, which is not the word", "X_BOOKMARKS_APP_TAGGING=true\n"],
+  ["1", "X_BOOKMARKS_APP_TAGGING=1\n"],
+  ["a line commented out", "# X_BOOKMARKS_APP_TAGGING=on\n"],
+  [
+    "two lines that disagree",
+    "X_BOOKMARKS_APP_TAGGING=on\nX_BOOKMARKS_APP_TAGGING=off\n",
+  ],
+  ["another variable that ends the same", "NOT_X_BOOKMARKS_APP_TAGGING=on\n"],
+])(
+  "only the word on turns the app's tagging on: %s leaves it off",
+  async (_, line) => {
+    const lib = library(2);
+    writeKey(lib.directory, {
+      content: `X_BOOKMARKS_ANTHROPIC_API_KEY=${FAKE_KEY}\n${line}`,
+    });
+    const { api, keys, pass } = setup(lib);
+
+    expect(await pass()).toMatchObject({ status: "off", reports: [] });
+    expect(api.sent).toEqual([]);
+    expect(keys).toEqual([]);
+  },
+);
+
+test.each([
+  ["as written", "X_BOOKMARKS_APP_TAGGING=on\n"],
+  ["in capitals", "X_BOOKMARKS_APP_TAGGING=ON\n"],
+  [
+    "quoted, exported and commented",
+    'export X_BOOKMARKS_APP_TAGGING="on" # mine\n',
+  ],
+])("the owner's line turns it on: %s", async (_, line) => {
+  const lib = library(2);
+  writeKey(lib.directory, {
+    content: `X_BOOKMARKS_ANTHROPIC_API_KEY=${FAKE_KEY}\n${line}`,
+  });
+  const { api, pass } = setup(lib);
+
+  expect(await pass()).toMatchObject({
+    status: "ran",
+    reports: [{ classified: 2 }],
+  });
+  expect(api.sent).toHaveLength(2);
+});
+
+test("a .env file that cannot be read leaves the app's tagging off", async () => {
+  const lib = library(2);
+  const path = writeKey(lib.directory, { appTagging: true });
+  chmodSync(path, 0o000);
+  const { api, pass } = setup(lib);
+
+  const result = await pass();
+
+  chmodSync(path, 0o600);
+  expect(result.status).toBe("off");
+  expect(api.sent).toEqual([]);
+});
+
+test("the setting is read from the file and never from an environment", async () => {
+  const lib = library(2);
+  writeKey(lib.directory);
+  vi.stubEnv("X_BOOKMARKS_APP_TAGGING", "on");
+  const { api, pass } = setup(lib);
+
+  expect((await pass()).status).toBe("off");
+  expect(api.sent).toEqual([]);
+  vi.unstubAllEnvs();
+});
+
+test("the owner's edit takes effect at the next pass, both ways, with nothing restarted", async () => {
+  const lib = library(2);
+  writeKey(lib.directory);
+  const { api, pass } = setup(lib);
+
+  expect((await pass()).status).toBe("off");
+
+  writeKey(lib.directory, { appTagging: true });
+  expect(await pass()).toMatchObject({
+    status: "ran",
+    reports: [{ classified: 2 }],
+  });
+
+  writeKey(lib.directory);
+  lib.add(3);
+  const sent = api.sent.length;
+  expect(await pass()).toMatchObject({ status: "off", waiting: 1 });
+  expect(api.sent).toHaveLength(sent);
+});
+
+test("with the app's tagging off, accepting a proposed tag still puts it on the bookmarks that proposed it, and nothing is sent", async () => {
+  const lib = library(3);
+  writeKey(lib.directory);
+  const { api, pass } = setup(lib, {
+    reply: (_, index) => ({
+      too_little_text: false,
+      category: "tools",
+      format: "tip",
+      tags: [],
+      proposed_tags: index < 2 ? ["drizzle"] : [],
+    }),
+  });
+  // The owner's own run, which is theirs to start whatever the setting.
+  await runTagging(lib.store, {
+    claude: createClaude({ apiKey: FAKE_KEY, send: api.send, retries: 0 }),
+    startedBy: "owner",
+    mode: "untagged",
+    capUsd: 2,
+  });
+  const sent = api.sent.length;
+
+  acceptTagProposal(lib.store, "drizzle");
+  const result = await pass();
+
+  // The two it was proposed for, whichever the run reached first.
+  expect([1, 2, 3].flatMap((n) => lib.labels(n).tags)).toEqual([
+    "drizzle",
+    "drizzle",
+  ]);
+  expect(result).toMatchObject({ status: "off", reports: [] });
+  expect(api.sent).toHaveLength(sent);
+  expect(listTaggingRuns(lib.store).map(({ startedBy }) => startedBy)).toEqual([
+    "owner",
+  ]);
+});
+
+test("with the app's tagging off, a batch the owner's run left waiting is not collected by the app", async () => {
+  const lib = library(4);
+  writeKey(lib.directory);
+  const { api, pass } = setup(lib, { batchPolls: 0 });
+  await runTagging(lib.store, {
+    claude: createClaude({ apiKey: FAKE_KEY, send: api.send, retries: 0 }),
+    startedBy: "owner",
+    mode: "untagged",
+    transport: "batch",
+    capUsd: 2,
+    batchWaitMs: 0,
+  });
+  const open = getOpenTaggingRun(lib.store);
+  const sent = api.sent.length;
+
+  const result = await pass();
+
+  expect(open?.batchId).not.toBeNull();
+  expect(result.status).toBe("off");
+  expect(api.sent).toHaveLength(sent);
+  expect(getOpenTaggingRun(lib.store)?.id).toBe(open?.id);
+});
+
+test.each([
+  ["off, with a key in place and bookmarks waiting", false, "off"],
+  // On, and stopped for want of a key: still nothing to send with.
+  ["on, with no key", true, "no-key"],
+])(
+  "a process whose tagging is %s never loads the client, the run or the SDK",
+  (_, on, expected) => {
+    const lib = library(3);
+    writeKey(lib.directory, on ? { content: APP_TAGGING_ON } : {});
+    lib.store.close();
+
+    // A process of its own, as the app is: this one has the client loaded.
+    const { stdout, stderr } = spawnSync(
+      process.execPath,
+      [join(import.meta.dirname, "testing/what-a-pass-loads.ts"), lib.path],
+      {
+        encoding: "utf8",
+        env: { ...process.env, X_BOOKMARKS_DATA_DIR: lib.directory },
+      },
+    );
+    expect(stderr).toBe("");
+    const { status, loaded } = JSON.parse(stdout) as {
+      status: string;
+      loaded: string[];
+    };
+    const within = (part: string) =>
+      loaded
+        .filter((url) => url.includes(part))
+        .map((url) => url.split("/").at(-1));
+
+    expect(status).toBe(expected);
+    // The hook saw the pass's own modules, so it would have seen the others.
+    expect(within("/packages/tagger/src/").toSorted()).toEqual([
+      "api-key.ts",
+      "automatic.ts",
+      "instructions.ts",
+    ]);
+    expect(within("@anthropic-ai")).toEqual([]);
+  },
+);
+
 test("new bookmarks are classified by a pass, one request at a time, with the key from its file", async () => {
   const lib = library(5);
-  writeKey(lib.directory);
+  writeKey(lib.directory, { appTagging: true });
   const { api, keys, pass } = setup(lib);
 
   const result = await pass();
@@ -66,8 +313,9 @@ test("new bookmarks are classified by a pass, one request at a time, with the ke
   });
 });
 
-test("without a key file a pass does nothing, says why, and reaches for no network", async () => {
+test("with the app's tagging on and no key, a pass does nothing, says why, and reaches for no network", async () => {
   const lib = library(3);
+  writeKey(lib.directory, { content: APP_TAGGING_ON });
   const { api, keys, pass } = setup(lib);
 
   const result = await pass();
@@ -92,11 +340,11 @@ test("a key under the standard name is not used, in the file or in the environme
   const standard = "sk-ant-api03-UNDER0THE0STANDARD0NAME000000000000";
   const onlyStandard = library(2);
   writeKey(onlyStandard.directory, {
-    content: `ANTHROPIC_API_KEY=${standard}\n`,
+    content: `ANTHROPIC_API_KEY=${standard}\n${APP_TAGGING_ON}`,
   });
   const both = library(2);
   writeKey(both.directory, {
-    content: `ANTHROPIC_API_KEY=${standard}\nX_BOOKMARKS_ANTHROPIC_API_KEY=${FAKE_KEY}\n`,
+    content: `ANTHROPIC_API_KEY=${standard}\nX_BOOKMARKS_ANTHROPIC_API_KEY=${FAKE_KEY}\n${APP_TAGGING_ON}`,
   });
   vi.stubEnv("ANTHROPIC_API_KEY", standard);
   const without = setup(onlyStandard);
@@ -123,7 +371,7 @@ test("a key under the standard name is not used, in the file or in the environme
 
 test("a pass leaves this process's environment as it found it: the key is never put there", async () => {
   const lib = library(2);
-  writeKey(lib.directory);
+  writeKey(lib.directory, { appTagging: true });
   const { pass } = setup(lib);
   const before = { ...process.env };
 
@@ -135,7 +383,7 @@ test("a pass leaves this process's environment as it found it: the key is never 
 
 test("a key file others can read is as good as none", async () => {
   const lib = library(3);
-  writeKey(lib.directory, { mode: 0o644 });
+  writeKey(lib.directory, { appTagging: true, mode: 0o644 });
   const { api, pass } = setup(lib);
 
   const result = await pass();
@@ -148,6 +396,7 @@ test("a key file others can read is as good as none", async () => {
 
 test("with nothing waiting a pass does not even read the key", async () => {
   const lib = library(0);
+  writeKey(lib.directory, { content: APP_TAGGING_ON });
   const { keys, pass } = setup(lib);
 
   expect(await pass()).toMatchObject({ status: "nothing-to-do", waiting: 0 });
@@ -156,7 +405,7 @@ test("with nothing waiting a pass does not even read the key", async () => {
 
 test("a backlog is left for the owner: a pass never starts the first run or a backfill", async () => {
   const lib = library(BACKLOG_LIMIT + 1);
-  writeKey(lib.directory);
+  writeKey(lib.directory, { appTagging: true });
   const { api, keys, pass } = setup(lib);
 
   const result = await pass();
@@ -174,7 +423,7 @@ test("a backlog is left for the owner: a pass never starts the first run or a ba
 
 test("an API that cannot be reached costs nothing and loses nothing: the next pass classifies the same bookmarks", async () => {
   const lib = library(4);
-  writeKey(lib.directory);
+  writeKey(lib.directory, { appTagging: true });
   const { api, pass } = setup(lib, { unreachable: true });
 
   const failed = await pass();
@@ -204,7 +453,7 @@ test("an API that cannot be reached costs nothing and loses nothing: the next pa
 
 test("a pass left to make its own client, in a test, makes none: it reports an error and sends nothing", async () => {
   const lib = library(2);
-  writeKey(lib.directory);
+  writeKey(lib.directory, { appTagging: true });
   const platform = vi.spyOn(globalThis, "fetch");
 
   const result = await tagNewBookmarks(lib.store, { envFile: lib.envFile });
@@ -217,7 +466,7 @@ test("a pass left to make its own client, in a test, makes none: it reports an e
 
 test("a pass never throws, whatever breaks under it", async () => {
   const lib = library(2);
-  writeKey(lib.directory);
+  writeKey(lib.directory, { appTagging: true });
   const result = await tagNewBookmarks(lib.store, {
     envFile: lib.envFile,
     connect: () => {
@@ -232,7 +481,7 @@ test("a pass never throws, whatever breaks under it", async () => {
 
 test("a pass spends within its own cap, and the app's passes within a day's", async () => {
   const lib = library(3);
-  writeKey(lib.directory);
+  writeKey(lib.directory, { appTagging: true });
   const { api, pass } = setup(lib);
   const now = new Date("2026-10-13T12:00:00.000Z");
   await pass(() => now);
@@ -276,7 +525,7 @@ test("a pass spends within its own cap, and the app's passes within a day's", as
 
 test("what the owner's runs spend does not count against the app's day", async () => {
   const lib = library(2);
-  writeKey(lib.directory);
+  writeKey(lib.directory, { appTagging: true });
   const { api, pass } = setup(lib);
   await runTagging(lib.store, {
     claude: createClaude({ apiKey: FAKE_KEY, send: api.send, retries: 0 }),
@@ -294,7 +543,7 @@ test("what the owner's runs spend does not count against the app's day", async (
 
 test("a pass collects a batch the owner's run left waiting, once it has ended, and never waits for one", async () => {
   const lib = library(BACKLOG_LIMIT);
-  writeKey(lib.directory);
+  writeKey(lib.directory, { appTagging: true });
   const { api, pass } = setup(lib, { batchPolls: 2 });
   await runTagging(lib.store, {
     claude: createClaude({ apiKey: FAKE_KEY, send: api.send, retries: 0 }),
@@ -326,7 +575,7 @@ test("a pass collects a batch the owner's run left waiting, once it has ended, a
 
 test("a pass that finds the owner's run at work leaves the bookmarks to it and says so", async () => {
   const lib = library(3);
-  writeKey(lib.directory);
+  writeKey(lib.directory, { appTagging: true });
   const { api, pass } = setup(lib);
   const owners = startTaggingRun(lib.store, {
     startedBy: "owner",
@@ -357,7 +606,7 @@ test("when the owner adds a tag, the next pass asks the bookmarks that mention i
   lib.add(2, {
     text: "A long note about gardening and nothing to do with databases",
   });
-  writeKey(lib.directory);
+  writeKey(lib.directory, { appTagging: true });
   const { api, pass } = setup(lib, {
     reply: () => ({
       too_little_text: false,
@@ -423,7 +672,7 @@ test("when the owner adds a tag, the next pass asks the bookmarks that mention i
 
 test("more bookmarks mentioning a new tag than a pass takes are left to the owner", async () => {
   const lib = library(BACKLOG_LIMIT + 1);
-  writeKey(lib.directory);
+  writeKey(lib.directory, { appTagging: true });
   const { api, pass } = setup(lib);
   await runTagging(lib.store, {
     claude: createClaude({ apiKey: FAKE_KEY, send: api.send, retries: 0 }),
@@ -450,7 +699,7 @@ test("both steps of a pass share the pass's one allowance", async () => {
   lib.add(1, {
     text: "We moved every query to Drizzle last month and it was painless",
   });
-  writeKey(lib.directory);
+  writeKey(lib.directory, { appTagging: true });
   const { pass } = setup(lib);
   await pass();
   addTag(lib.store, "drizzle");

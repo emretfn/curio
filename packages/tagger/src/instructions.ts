@@ -7,12 +7,14 @@
  *
  * `INSTRUCTIONS_VERSION` covers everything in this package that shapes an
  * answer: the wording below, the fields of `input.ts`, the model and its
- * settings. Raise it when any of those change. It is stored with every
- * classification, and `pnpm tag --retag` classifies again what was made
- * under an older one. `instructions.test.ts` holds the fingerprint of each
- * version and fails when a change was made without raising it. A change to
- * the vocabulary is not a change to the instructions: the vocabulary has a
- * version of its own, stored beside this one.
+ * settings. Raise it when any of those change. The number itself is kept in
+ * core (`tagging.ts`), where every reader of the library can see it: it is
+ * stored with every classification, and a classification made under an
+ * older one is outdated, which `pnpm tag --retag` classifies again.
+ * `instructions.test.ts` holds the fingerprint of each version and fails
+ * when a change was made without raising it. A change to the vocabulary is
+ * not a change to the instructions: the vocabulary has a version of its
+ * own, stored beside this one.
  */
 import { createHash } from "node:crypto";
 import {
@@ -23,7 +25,7 @@ import {
   type Vocabulary,
 } from "@x-bookmarks/core";
 
-export const INSTRUCTIONS_VERSION = 2;
+export { INSTRUCTIONS_VERSION } from "@x-bookmarks/core";
 
 /** The model that classifies. Its prices are in `pricing.ts`. */
 export const MODEL = "claude-haiku-5-5";

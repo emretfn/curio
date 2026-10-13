@@ -96,9 +96,9 @@ export function WeekCounts({
                 "None of this week’s {n} bookmarks is filed under a category yet.",
               )
             : `${whole(unfiled)} of this week’s ${whole(bookmarks)} bookmarks ${unfiled === 1 ? "is" : "are"} not filed yet, and ${unfiled === 1 ? "is" : "are"} in no count above.`}{" "}
-          The app files new bookmarks by itself once an API key is set;{" "}
           <code className="font-mono text-foreground">pnpm tag</code> files the
-          ones that are waiting.
+          ones that are waiting. The app files new bookmarks by itself only if
+          you have turned that on.
         </p>
       ) : null}
     </div>
