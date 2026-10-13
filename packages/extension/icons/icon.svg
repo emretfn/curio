@@ -1,23 +1,22 @@
 <!--
-  The mark: a cabinet of curiosities, standing on its feet, with four
-  compartments and something bright kept in one of them.
+  The mark: an open C holding a single dot. The initial, and one thing kept.
 
-  Drawn on a 16 by 16 grid with every edge on a whole unit, so that the
-  16-pixel toolbar icon has no blurred edge. The blue is close to the app's
-  link colour and holds on a light toolbar and on a dark one; the amber is
-  the family of its search highlight. No letter is drawn: the title is the
-  name read out in its place, and is the one thing here to change with it.
+  It sits on a tile so that one file serves every surface: a light toolbar, a
+  dark one, a tab, a page. The colours are the app's own. The tile is its
+  primary, the C its primary foreground, and the dot is the hue of its search
+  highlight, the one bright thing in an interface that is otherwise ink on
+  paper (packages/web/src/app/globals.css).
+
+  Drawn on a 16 by 16 grid for the 16-pixel toolbar icon first: the ring is 2
+  wide, the dot and the opening are both 4, and where the ring, the dot and
+  the opening cross the axes they fall on whole units, so nothing there blurs.
 
   This file is the source. `pnpm icons:build` renders the PNGs beside it and
   copies it to the web app; run it after any change here.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
   <title>Curio</title>
-  <rect x="2" y="12" width="2" height="3" rx="0.5" fill="#2563c9" />
-  <rect x="12" y="12" width="2" height="3" rx="0.5" fill="#2563c9" />
-  <rect x="1" y="1" width="14" height="12" rx="2" fill="#2563c9" />
-  <rect x="3" y="3" width="3" height="3" rx="0.75" fill="#ffffff" />
-  <rect x="7" y="3" width="6" height="3" rx="0.75" fill="#ffffff" />
-  <rect x="3" y="7" width="6" height="4" rx="0.75" fill="#ffffff" />
-  <rect x="10" y="7" width="3" height="4" rx="0.75" fill="#f7b83d" />
+  <rect width="16" height="16" rx="4" fill="#171717" />
+  <path d="M13.657 6A6 6 0 1 0 13.657 10H11.464A4 4 0 1 1 11.464 6Z" fill="#fafafa" />
+  <circle cx="8" cy="8" r="2" fill="#fcdd5b" />
 </svg>
