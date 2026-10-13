@@ -1,10 +1,16 @@
 {
   "manifest_version": 3,
-  "name": "x-bookmarks capture",
+  "name": "Curio capture",
   "version": "0.1.0",
-  "description": "Keeps a copy of the bookmark responses X's web client receives while you browse, and hands them to the x-bookmarks app on this computer. Sends nothing to X.",
+  "description": "Keeps a copy of the bookmark responses X's web client receives while you browse, and hands them to the Curio app on this computer. Sends nothing to X.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8RSWm5CVlNK4/AB0uuQZc/nmK/I8ykb+BIduDi7t5KZMYVuxrNlWnCBbdZu12mO0sfAri2S9Novout3mm9+KmrKCakbnd/nMeK4ZcWgUGaMFHxx14ZPrelPVrbCuqv3TkX6t6oIGXLADSP7TqsuuN/MvhnT3NIfaMpPu3mG0akpbuaYnKminAYwRpxKNYQxy4q0p+BXgm28r8nO75R/sKpbFtlUb5CWN+JpUf2zdu+2vC+0/XClNS1PeoLGpZxyEbxe7xsfQBEBm2V4z+FB0DUh3awzAeIRPUmhn4wFwi3+M37ysqOcfCvjk+y5FJA/EB6cHpm/UPelHo5NQeLH/EQIDAQAB",
   "minimum_chrome_version": "130",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "permissions": ["storage", "unlimitedStorage", "alarms"],
   "host_permissions": ["http://127.0.0.1:47130/*"],
   "background": {
@@ -25,7 +31,11 @@
     }
   ],
   "action": {
-    "default_title": "x-bookmarks capture",
+    "default_title": "Curio capture",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    },
     "default_popup": "popup.html"
   }
 }

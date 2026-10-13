@@ -1,0 +1,591 @@
+/*
+ * The popup's look. It is the app's: the same neutral surfaces, the same one
+ * blue for links, focus and work in progress, the same red for what went
+ * wrong, the system typeface. The values below are copied from
+ * packages/web/src/app/globals.css, because an extension page cannot load
+ * the app's stylesheet; a change there is a change here.
+ *
+ * Light or dark follows the browser, which is all an extension page can ask.
+ * Nothing here loads anything: no font, no image, no address at all.
+ */
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.54 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  /* An input's edge has to be seen: 3:1 against the page, not the 1.2:1 of a divider. */
+  --input: oklch(0.64 0 0);
+  --field: transparent;
+  --ring: oklch(0.48 0.16 258);
+  --link: oklch(0.48 0.16 258);
+  --radius: 0.625rem;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(0.56 0 0);
+    --field: oklch(1 0 0 / 4.5%);
+    --ring: oklch(0.8 0.1 250);
+    --link: oklch(0.8 0.1 250);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  /* A popup is as wide as its page says. In a tab, the same column, centred. */
+  inline-size: 21.5rem;
+  margin: 0 auto;
+  background: var(--background);
+  color: var(--foreground);
+  font:
+    0.8125rem / 1.5 ui-sans-serif,
+    system-ui,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p,
+ol,
+dl,
+dd {
+  margin: 0;
+}
+
+code {
+  padding: 0.0625rem 0.3125rem;
+  border-radius: 0.3125rem;
+  background: var(--muted);
+  color: var(--foreground);
+  font:
+    0.75rem / 1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: nowrap;
+  /* A command is copied whole: one click selects it. */
+  user-select: all;
+}
+
+/* The drawings: the app's icon set, one stroke weight, coloured by their text. */
+.glyph {
+  flex: none;
+  inline-size: 1rem;
+  block-size: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.small {
+  inline-size: 0.8125rem;
+  block-size: 0.8125rem;
+}
+
+/* --- The bar ------------------------------------------------------------ */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  border-block-end: 1px solid var(--border);
+}
+
+.mark {
+  flex: none;
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+}
+
+h1 {
+  flex: 1;
+  min-inline-size: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+}
+
+h1 span {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+
+.bar-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  /* Two pixels less on the icon's side, where the glyph carries its own air. */
+  margin-inline-end: -0.375rem;
+  padding: 0.25rem 0.375rem 0.25rem 0.5rem;
+  border-radius: calc(var(--radius) * 0.6);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1rem;
+  text-decoration: none;
+  outline: none;
+}
+
+.bar-link:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* --- The state ---------------------------------------------------------- */
+
+main {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+/* Until the worker has answered there is no state to draw, and no wrong one to flash. */
+main[data-state="loading"] {
+  min-block-size: 6rem;
+}
+
+main[data-state="loading"] .hero {
+  visibility: hidden;
+}
+
+.hero-icon {
+  display: grid;
+  place-items: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  border-radius: calc(var(--radius) * 0.8);
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+main[data-tone="active"] .hero-icon {
+  background: color-mix(in oklch, var(--link) 12%, transparent);
+  color: var(--link);
+}
+
+main[data-tone="problem"] .hero-icon {
+  background: color-mix(in oklch, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+}
+
+.hero-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  /* The title's first line sits level with the middle of the icon. */
+  padding-block-start: 0.375rem;
+}
+
+/* Given the keyboard when a state replaces the control it was on. Not a control: no ring. */
+h2 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  text-wrap: balance;
+  outline: none;
+}
+
+.detail {
+  color: var(--muted-foreground);
+  text-wrap: pretty;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin-block-start: 0.5rem;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.steps li {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr);
+  gap: 0.5rem;
+  counter-increment: step;
+}
+
+.steps li::before {
+  content: counter(step);
+  display: grid;
+  place-items: center;
+  block-size: 1.25rem;
+  border-radius: 50%;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A dot with a ring leaving it, while captures are arriving. */
+.live {
+  position: relative;
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.live::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.25;
+  scale: 2;
+}
+
+/* --- Buttons and the token field --------------------------------------- */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-block-size: 2rem;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.25rem;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+}
+
+.button[data-variant="outline"] {
+  border-color: var(--border);
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.wide {
+  inline-size: 100%;
+}
+
+.button:focus-visible,
+input:focus-visible {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 50%, transparent);
+}
+
+/* Busy: the label says so, the button stays where the keyboard left it. */
+.button[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.button .spinner {
+  display: none;
+  inline-size: 0.875rem;
+  block-size: 0.875rem;
+}
+
+.button[data-busy] .spinner {
+  display: block;
+}
+
+.pairing {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1rem;
+}
+
+.pairing-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+input {
+  flex: 1;
+  min-inline-size: 0;
+  block-size: 2rem;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--field);
+  color: var(--foreground);
+  font: inherit;
+  outline: none;
+}
+
+input::placeholder {
+  color: var(--muted-foreground);
+  opacity: 1;
+}
+
+input:read-only {
+  opacity: 0.6;
+}
+
+/* --- The counts --------------------------------------------------------- */
+
+.counts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.75rem;
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.counts dl {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+dt {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+dd {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.75rem;
+  /* A number that goes up while it is watched must not shift its neighbours. */
+  font-variant-numeric: tabular-nums;
+}
+
+.refused dd {
+  color: var(--destructive);
+}
+
+.times {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.125rem 0.75rem;
+  padding-block-start: 0.5rem;
+  border-block-start: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+/* --- What went wrong, in the worker's own words ------------------------- */
+
+.problem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding-inline-start: 0.75rem;
+  border-inline-start: 2px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+  overflow-wrap: anywhere;
+}
+
+main[data-tone="problem"] .problem {
+  border-inline-start-color: color-mix(
+    in oklch,
+    var(--destructive) 50%,
+    transparent
+  );
+}
+
+h3 {
+  color: var(--foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.125rem;
+}
+
+h3 time {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+
+h3 time::before {
+  content: "· ";
+}
+
+/* --- Another token ------------------------------------------------------ */
+
+summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  /* The chevron's own air stands in for the text's inset. */
+  margin-inline-start: -0.1875rem;
+  border-radius: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+.fold[open] summary .glyph {
+  rotate: 90deg;
+}
+
+.fold-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-block-start: 0.5rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+}
+
+/* --- The foot ----------------------------------------------------------- */
+
+.foot {
+  padding: 0.625rem 1rem 0.75rem;
+  border-block-start: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  text-wrap: pretty;
+}
+
+/*
+ * What the script has hidden stays hidden, whatever its class lays it out
+ * as. Every rule above that sets a display is a single class, and this is a
+ * class and an element, so it wins without being forced.
+ */
+main [hidden] {
+  display: none;
+}
+
+/* --- Pointer and motion ------------------------------------------------- */
+
+@media (hover: hover) {
+  .bar-link:hover,
+  summary:hover {
+    color: var(--foreground);
+  }
+  .bar-link:hover {
+    background: var(--muted);
+  }
+  .button:not([aria-disabled="true"]):hover {
+    background: color-mix(in oklch, var(--primary) 80%, transparent);
+  }
+  .button[data-variant="outline"]:not([aria-disabled="true"]):hover {
+    background: var(--muted);
+  }
+}
+
+/*
+ * Motion is here and nowhere else, so that a reader who asked for less gets
+ * none: no spin, no pulse, no press, no fade. Each state says what it is in
+ * words and by its icon either way.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .bar-link,
+  summary {
+    transition:
+      color 150ms ease-out,
+      background-color 150ms ease-out;
+  }
+
+  .button {
+    transition:
+      background-color 150ms ease-out,
+      border-color 150ms ease-out,
+      box-shadow 150ms ease-out,
+      opacity 150ms ease-out,
+      scale 150ms ease-out;
+  }
+
+  .button:not([aria-disabled="true"]):active {
+    scale: 0.96;
+  }
+
+  input {
+    transition:
+      border-color 150ms ease-out,
+      box-shadow 150ms ease-out;
+  }
+
+  .fold summary .glyph {
+    transition: rotate 150ms var(--ease-out);
+  }
+
+  /* Work in progress: constant, so linear. */
+  .spinner {
+    animation: spin 700ms linear infinite;
+  }
+
+  /* One ring leaves the dot for each beat: captures are arriving now. */
+  .live::after {
+    animation: ring 1600ms var(--ease-out) infinite;
+  }
+}
+
+@keyframes spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@keyframes ring {
+  from {
+    opacity: 0.5;
+    scale: 1;
+  }
+  to {
+    opacity: 0;
+    scale: 3;
+  }
+}

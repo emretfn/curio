@@ -1,6 +1,7 @@
 import { Bookmark, SearchX, X } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { CurioMark } from "@/components/curio-mark";
 import { LabelChoicesProvider } from "@/components/library/label-choices";
 import { LibraryFrame, Results } from "@/components/library/library-frame";
 import { LibraryList } from "@/components/library/library-list";
@@ -291,8 +292,8 @@ export default async function LibraryPage({
         <aside className="sticky top-0 hidden h-dvh flex-col border-e bg-sidebar lg:flex">
           <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 ps-5 pe-3">
             <p className="flex items-center gap-2 font-semibold text-[0.9375rem]">
-              <Bookmark aria-hidden="true" className="size-4" />
-              Bookmarks
+              <CurioMark className="size-[1.125rem]" />
+              Curio
             </p>
             <ThemeSetting compact />
           </div>

@@ -303,6 +303,101 @@ test("a problem reported by the page hook shows as the last error until a newer 
   );
 });
 
+test("each error says what it is about, so that the popup need not read its prose", async () => {
+  const troubleAfter = async (
+    arrange: (the: ReturnType<typeof setUp>) => void | Promise<void>,
+    options?: Parameters<typeof setUp>[0],
+  ) => {
+    const the = setUp(options);
+    await arrange(the);
+    await the.queue.enqueue(seen);
+    return (await the.queue.deliver()).lastError?.trouble;
+  };
+
+  expect(
+    await troubleAfter(({ storage }) => void storage.data.delete("token")),
+  ).toBe("not-paired");
+  expect(await troubleAfter(({ app }) => app.goDown())).toBe("app-unreachable");
+  expect(await troubleAfter(() => {}, { squatter: true })).toBe("app-unproven");
+  expect(await troubleAfter(({ app }) => app.answer(422))).toBe(
+    "capture-refused",
+  );
+  expect(await troubleAfter(({ app }) => app.answer(500))).toBe(
+    "capture-unconfirmed",
+  );
+
+  const { queue, storage } = setUp();
+  await queue.noteProblem({ operation: "Bookmarks", detail: "X was busy." });
+  expect((await queue.status()).lastError?.trouble).toBe("not-captured");
+
+  // An error an earlier version stored says nothing of the kind, and reads as that.
+  storage.data.set("stats", {
+    captured: 0,
+    lastCapturedAt: null,
+    lastDeliveredAt: null,
+    lastError: { at: 1760257900000, message: "From before.", from: "delivery" },
+  });
+  expect((await queue.status()).lastError).toEqual({
+    at: 1760257900000,
+    message: "From before.",
+    trouble: null,
+  });
+});
+
+test("checking the pairing again confirms a token saved while the app was closed, and delivers what waited", async () => {
+  const { queue, app } = setUp();
+  app.goDown();
+  const closed = await queue.pair(TOKEN);
+  await queue.enqueue(seen);
+  const stillClosed = await queue.checkPairing();
+  expect(app.requests).toEqual([]);
+
+  app.comeUp();
+  const open = await queue.checkPairing();
+
+  expect(closed.pairing).toBe("unconfirmed");
+  expect(stillClosed).toMatchObject({ pairing: "unconfirmed", pending: 1 });
+  expect(stillClosed.lastError?.trouble).toBe("app-unreachable");
+  expect(open).toMatchObject({
+    pairing: "paired",
+    delivered: 1,
+    pending: 0,
+    lastError: null,
+  });
+  // The same signed greeting a delivery opens with, then the delivery.
+  expect(
+    app.requests.map(({ path, body }) => [path, body.slice(0, 2)]),
+  ).toEqual([
+    ["/api/pairing", "{}"],
+    ["/api/pairing", "{}"],
+    ["/api/ingest", '{"'],
+  ]);
+  for (const request of app.requests) {
+    expect(JSON.stringify(request)).not.toContain(TOKEN);
+  }
+});
+
+test("checking the pairing again sends nothing without a token, and changes nothing about a token the app turns down", async () => {
+  const unpaired = setUp();
+  unpaired.storage.data.delete("token");
+  await unpaired.queue.enqueue(seen);
+
+  expect(await unpaired.queue.checkPairing()).toMatchObject({
+    pairing: "none",
+    pending: 1,
+  });
+  expect(unpaired.app.fetch).not.toHaveBeenCalled();
+
+  const stale = setUp({ token: "the-app-holds-another-token" });
+  await stale.queue.enqueue(seen);
+  const refused = await stale.queue.checkPairing();
+
+  expect(refused).toMatchObject({ pairing: "refused", pending: 1 });
+  expect(refused.lastError?.trouble).toBe("app-unproven");
+  expect(stale.app.captureIds()).toEqual([]);
+  expect(stale.storage.data.get("token")).toBe(TOKEN);
+});
+
 test("pairing stores the token, has the app prove itself, and delivers what was waiting", async () => {
   const { queue, app, storage } = setUp();
   storage.data.delete("token");

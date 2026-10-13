@@ -1,4 +1,4 @@
-import { cp, mkdir, rm } from "node:fs/promises";
+import { cp, mkdir, readFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
@@ -23,6 +23,16 @@ const shared = {
   logLevel: "info",
 } as const;
 
+/** A file that ships as it is, at the same place under the target. */
+const copied = (from: string, to: string = from.replace(/^src\//, "")) =>
+  cp(new URL(`./${from}`, import.meta.url), new URL(to, out));
+
+// The icons the manifest names. They are rendered from icons/icon.svg by
+// `pnpm icons:build` and committed, so that this build needs no browser.
+const manifest: { icons: Record<string, string> } = JSON.parse(
+  await readFile(new URL("./manifest.json", import.meta.url), "utf8"),
+);
+
 await Promise.all([
   build({
     ...shared,
@@ -30,9 +40,8 @@ await Promise.all([
     format: "iife",
   }),
   build({ ...shared, entryPoints: ["src/background.ts"], format: "esm" }),
-  cp(
-    new URL("./manifest.json", import.meta.url),
-    new URL("manifest.json", out),
-  ),
-  cp(new URL("./src/popup.html", import.meta.url), new URL("popup.html", out)),
+  copied("manifest.json"),
+  copied("src/popup.html"),
+  copied("src/popup.css"),
+  ...Object.values(manifest.icons).map((icon) => copied(icon)),
 ]);

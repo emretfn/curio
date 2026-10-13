@@ -371,23 +371,36 @@ async function popupShows(
   }
 }
 
-const pairing = () => popup.locator("#paired").getAttribute("data-pairing");
-/** Waits for the popup's error line to read as expected. */
-async function lastErrorMatches(expected: RegExp): Promise<void> {
-  let last = "";
+const pairing = () => popup.locator("#status").getAttribute("data-pairing");
+/**
+ * Waits for the popup to be in a state, by the name `viewOf` gives it, and
+ * returns what it then says: its title and the sentence under it.
+ */
+async function popupIs(...states: string[]): Promise<string> {
+  let last: string | null = null;
   try {
-    await waitFor(`the popup's error line to match ${expected}`, async () => {
-      last = (await popup.locator("#last-error").textContent()) ?? "";
-      return expected.test(last);
-    });
+    await waitFor(
+      `the popup to be in the state ${states.join(" or ")}`,
+      async () => {
+        last = await popup.locator("#status").getAttribute("data-state");
+        return last !== null && states.includes(last);
+      },
+    );
   } catch (error) {
-    throw new Error(`The popup's error line reads "${last}".`, {
-      cause: error,
-    });
+    throw new Error(
+      `The popup is in the state "${last}" and reads "${await popup.locator("#title").textContent()}".`,
+      { cause: error },
+    );
   }
+  return `${await popup.locator("#title").textContent()}\n${await popup.locator("#detail").textContent()}`;
 }
-const sendNow = () =>
-  popup.getByRole("button", { name: "Send waiting captures now" }).click();
+/**
+ * Presses the one button the popup's state offers: "Send now" where captures
+ * wait for the app, "Check again" where the app has not proved it holds the
+ * token.
+ */
+const pressAction = (name: "Send now" | "Check again") =>
+  popup.getByRole("button", { name, exact: true }).click();
 
 async function visit(path: string): Promise<void> {
   asked.push({ method: "GET", path });
@@ -521,6 +534,19 @@ test("the extension loads under its fixed id, unpaired", {
   await openPopup();
   await popupShows({ captured: 0, delivered: 0, pending: 0, rejected: 0 });
   assert.equal(await pairing(), "none");
+
+  // What a stranger sees first: the name, what to do, and the field to do it
+  // in, already holding the keyboard. Nothing to count, so nothing counted.
+  assert.equal(await popup.title(), "Curio capture");
+  assert.match(await popupIs("not-paired"), /^Not paired yet\n/);
+  assert.deepEqual(await popup.locator("#steps li").allTextContents(), [
+    "Start the app: pnpm app",
+    "In a second terminal, run pnpm pair",
+    "Paste the token it prints below",
+  ]);
+  assert.equal(await popup.evaluate(() => document.activeElement?.id), "token");
+  assert.equal(await popup.locator("#counts").isHidden(), true);
+  assert.equal(await popup.locator("#action").isHidden(), true);
 });
 
 test("with the app closed, a capture made after in-app navigation waits in the extension", {
@@ -544,7 +570,8 @@ test("with the app closed, a capture made after in-app navigation waits in the e
     "the page got X's response unchanged",
   );
   await popupShows({ captured: 1, delivered: 0, pending: 1 });
-  await lastErrorMatches(/Not paired/);
+  assert.match(await popupIs("not-paired"), /\n1 capture is kept here, /);
+  assert.equal(await popup.locator("#counts").isVisible(), true);
 });
 
 test("the pairing token comes from the terminal and is on no page of the app", {
@@ -590,6 +617,16 @@ test("before the first capture arrives the library is empty, says how it fills, 
       .getAttribute("href"),
     "/pair",
   );
+  // The tab is named as the extension is, and wears the mark the toolbar's
+  // icons were rendered from.
+  assert.equal(await page.title(), "Curio");
+  const icon = await page.locator('link[rel="icon"]').getAttribute("href");
+  assert.match(icon ?? "", /^\/icon\.svg\?/);
+  assert.equal(
+    (await requestToApp("GET", icon ?? "")).body,
+    readFileSync(join(repoRoot, "packages/extension/icons/icon.svg"), "utf8"),
+  );
+
   const status = page.getByTestId("status-line");
   assert.equal(await status.getAttribute("data-level"), "ok");
   assert.match((await status.textContent()) ?? "", /No captures yet/);
@@ -603,11 +640,19 @@ test("after pairing, the waiting capture reaches the database byte for byte, dat
 }, async () => {
   const before = Date.now();
   await popup.locator("#token").fill(token);
-  await popup.getByRole("button", { name: "Pair" }).click();
+  await popup.getByRole("button", { name: "Pair", exact: true }).click();
 
   await popupShows({ captured: 1, delivered: 1, pending: 0, rejected: 0 });
   assert.equal(await pairing(), "paired");
   assert.equal(await popup.locator("#last-error").isHidden(), true);
+  // The token is not left on the page, and its field is folded away.
+  await popupIs("up-to-date", "capturing");
+  assert.equal(await popup.locator("#token").inputValue(), "");
+  assert.equal(await popup.locator("#token").isHidden(), true);
+  assert.equal(
+    await popup.getByText("Pair with another token").isVisible(),
+    true,
+  );
 
   const [capture, ...others] = storedCaptures();
   expectedCaptures = 1;
@@ -705,10 +750,14 @@ test("while the app is closed, another program on its port is sent no capture an
   );
 
   await load("xhr", "GET", `${GQL}/Bookmarks?cursor=while-squatted`);
-  await sendNow();
+  assert.match(
+    await popupIs("refused"),
+    /^The app did not accept this token\n.*so nothing was sent to it\./,
+  );
+  await pressAction("Check again");
   await popupShows({ captured: 5, delivered: 4, pending: 1 });
 
-  await lastErrorMatches(/did not prove it holds this pairing token/);
+  await popupIs("refused");
   assert.equal(await pairing(), "refused");
   assert.ok(received.length > 0, "the squatter was contacted");
   for (const request of received) {
@@ -724,12 +773,17 @@ test("while the app is closed, another program on its port is sent no capture an
 test("captures taken while the app was away are delivered once it is back, each exactly once", {
   timeout: TEST_TIMEOUT_MS,
 }, async () => {
-  await sendNow();
+  // Nothing is listening now. Checked again, the token is one the app has
+  // not answered for, and the capture is still kept.
+  await pressAction("Check again");
+  assert.match(
+    await popupIs("unconfirmed"),
+    /^Waiting for the app\n.*nothing answered at 127\.0\.0\.1:47130\..* 1 capture is kept here/,
+  );
   await popupShows({ captured: 5, delivered: 4, pending: 1 });
-  await lastErrorMatches(/did not answer/);
 
   await startApp();
-  await sendNow();
+  await pressAction("Check again");
 
   await popupShows({ captured: 5, delivered: 5, pending: 0, rejected: 0 });
   assert.equal(await pairing(), "paired");
@@ -785,8 +839,12 @@ test("a service worker stopped in the middle of a delivery leaves a queue that d
 
   // Start the delivery, let it get under way, then stop the worker, as
   // Chrome may at any time. The popup is closed first: it asks the worker for
-  // its status every two seconds, and that would start the worker again.
-  await sendNow();
+  // its status every second, and that would start the worker again.
+  assert.match(
+    await popupIs("waiting"),
+    new RegExp(`^${total} captures waiting for the app\\n`),
+  );
+  await pressAction("Send now");
   await waitFor("the delivery to get under way", () => storedCount() > 6 + 2);
   await popup.close();
   states.length = 0;
@@ -1090,6 +1148,7 @@ test("the extension's script inside an x.com tab can reach neither the queue, th
   for (const message of [
     '{ type: "get-status" }',
     '{ type: "set-token", token: "attacker" }',
+    '{ type: "check-pairing" }',
     '{ type: "deliver-now" }',
   ]) {
     // The worker answers with nothing, which arrives as null.

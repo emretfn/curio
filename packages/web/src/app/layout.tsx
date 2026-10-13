@@ -4,7 +4,10 @@ import { THEME_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "Bookmarks", template: "%s · Bookmarks" },
+  applicationName: "Curio",
+  title: { default: "Curio", template: "%s · Curio" },
+  description:
+    "A personal library of your own X bookmarks, kept on this computer.",
   // No page of this app tells another site where a click came from.
   referrer: "no-referrer",
 };

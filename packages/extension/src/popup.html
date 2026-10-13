@@ -2,41 +2,158 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>x-bookmarks capture</title>
-    <style>
-      body { font: 13px system-ui, sans-serif; width: 300px; margin: 12px; }
-      h1 { font-size: 14px; margin: 0 0 8px; }
-      dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0 0 12px; }
-      dd { margin: 0; text-align: right; }
-      form { display: flex; gap: 6px; margin-bottom: 8px; }
-      input { flex: 1; min-width: 0; }
-      [role="alert"] { margin: 0 0 12px; }
-    </style>
+    <meta name="color-scheme" content="light dark" />
+    <title>Curio capture</title>
+    <!-- Everything this page loads ships inside the extension: one stylesheet, one script, and the drawings below. -->
+    <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <h1>x-bookmarks capture</h1>
-    <dl>
-      <dt>Paired with the app</dt>
-      <dd id="paired">…</dd>
-      <dt>Captured</dt>
-      <dd id="captured">…</dd>
-      <dt>Delivered to the app</dt>
-      <dd id="delivered">…</dd>
-      <dt>Waiting for the app</dt>
-      <dd id="pending">…</dd>
-      <dt>Refused by the app</dt>
-      <dd id="rejected">…</dd>
-      <dt>Last capture</dt>
-      <dd id="last-captured">…</dd>
-      <dt>Last delivery</dt>
-      <dd id="last-delivered">…</dd>
-    </dl>
-    <p id="last-error" role="alert" hidden></p>
-    <form id="pairing">
-      <input id="token" type="password" placeholder="Pairing token" autocomplete="off" aria-label="Pairing token" />
-      <button type="submit">Pair</button>
-    </form>
-    <button id="deliver" type="button">Send waiting captures now</button>
+    <header class="bar">
+      <!-- The mark, as in icons/icon.svg. popup.test.ts holds the two to the same shapes. -->
+      <svg class="mark" viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="2" y="12" width="2" height="3" rx="0.5" fill="#2563c9" />
+        <rect x="12" y="12" width="2" height="3" rx="0.5" fill="#2563c9" />
+        <rect x="1" y="1" width="14" height="12" rx="2" fill="#2563c9" />
+        <rect x="3" y="3" width="3" height="3" rx="0.75" fill="#ffffff" />
+        <rect x="7" y="3" width="6" height="3" rx="0.75" fill="#ffffff" />
+        <rect x="3" y="7" width="6" height="4" rx="0.75" fill="#ffffff" />
+        <rect x="10" y="7" width="3" height="4" rx="0.75" fill="#f7b83d" />
+      </svg>
+      <h1>Curio <span>capture</span></h1>
+      <!-- The app's own address, on this computer. popup.test.ts holds it to the protocol's. -->
+      <a class="bar-link" href="http://127.0.0.1:47130/" target="_blank" rel="noreferrer">
+        Open library
+        <svg class="glyph small" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7 7h10v10" />
+          <path d="M7 17 17 7" />
+        </svg>
+      </a>
+    </header>
+
+    <main id="status" data-state="loading" data-tone="neutral">
+      <section class="hero">
+        <div class="hero-icon" aria-hidden="true">
+          <svg class="glyph" data-icon="unplug" viewBox="0 0 24 24" aria-hidden="true" hidden>
+            <path d="m19 5 3-3" />
+            <path d="m2 22 3-3" />
+            <path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z" />
+            <path d="M7.5 13.5 10 11" />
+            <path d="M10.5 16.5 13 14" />
+            <path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z" />
+          </svg>
+          <svg class="glyph" data-icon="check" viewBox="0 0 24 24" aria-hidden="true" hidden>
+            <circle cx="12" cy="12" r="10" />
+            <path d="m16 9-5.5 5.5L8 12" />
+          </svg>
+          <svg class="glyph" data-icon="dashed" viewBox="0 0 24 24" aria-hidden="true" hidden>
+            <path d="M10.1 2.182a10 10 0 0 1 3.8 0" />
+            <path d="M13.9 21.818a10 10 0 0 1-3.8 0" />
+            <path d="M17.609 3.721a10 10 0 0 1 2.69 2.7" />
+            <path d="M2.182 13.9a10 10 0 0 1 0-3.8" />
+            <path d="M20.279 17.609a10 10 0 0 1-2.7 2.69" />
+            <path d="M21.818 10.1a10 10 0 0 1 0 3.8" />
+            <path d="M3.721 6.391a10 10 0 0 1 2.7-2.69" />
+            <path d="M6.391 20.279a10 10 0 0 1-2.69-2.7" />
+          </svg>
+          <svg class="glyph spinner" data-icon="spinner" viewBox="0 0 24 24" aria-hidden="true" hidden>
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+          <span class="live" data-icon="live" hidden></span>
+          <svg class="glyph" data-icon="warning" viewBox="0 0 24 24" aria-hidden="true" hidden>
+            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+            <path d="M12 9v4" />
+            <path d="M12 17h.01" />
+          </svg>
+          <svg class="glyph" data-icon="error" viewBox="0 0 24 24" aria-hidden="true" hidden>
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 8v4" />
+            <path d="M12 16h.01" />
+          </svg>
+        </div>
+        <!-- The one part read out when it changes: what state this is, and what to do. -->
+        <div class="hero-text" role="status">
+          <h2 id="title" tabindex="-1">Reading the status…</h2>
+          <p id="detail" class="detail"></p>
+          <ol id="steps" class="steps" hidden></ol>
+        </div>
+      </section>
+
+      <div id="pairing-open" hidden>
+        <form id="pairing" class="pairing">
+          <label for="token">Pairing token</label>
+          <div class="pairing-row">
+            <input
+              id="token"
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Paste it here"
+            />
+            <button id="pair" class="button" type="submit" data-variant="primary">
+              <svg class="glyph spinner" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+              <span id="pair-label">Pair</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <button id="action" class="button wide" type="button" hidden>
+        <svg class="glyph spinner" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+        <span id="action-label"></span>
+      </button>
+
+      <section id="counts" class="counts" aria-label="Captures" hidden>
+        <dl>
+          <div>
+            <dt>Captured</dt>
+            <dd id="captured">0</dd>
+          </div>
+          <div>
+            <dt>Delivered</dt>
+            <dd id="delivered">0</dd>
+          </div>
+          <div>
+            <dt>Waiting</dt>
+            <dd id="pending">0</dd>
+          </div>
+          <div id="rejected-cell" class="refused" hidden>
+            <dt>Refused</dt>
+            <dd id="rejected">0</dd>
+          </div>
+        </dl>
+        <p id="times" class="times" hidden>
+          <span id="last-captured-line">Last capture <time id="last-captured"></time></span>
+          <span id="last-delivered-line">Last delivery <time id="last-delivered"></time></span>
+        </p>
+      </section>
+
+      <section id="last-error" class="problem" hidden>
+        <h3>Last problem <time id="last-error-at"></time></h3>
+        <p id="last-error-message"></p>
+      </section>
+
+      <details id="pairing-fold" class="fold" hidden>
+        <summary>
+          <svg class="glyph small" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+          Pair with another token
+        </summary>
+        <div class="fold-body">
+          <p>
+            For when the app's token has changed. Run <code>pnpm pair</code> in the project folder and paste what it
+            prints.
+          </p>
+          <div id="pairing-folded"></div>
+        </div>
+      </details>
+    </main>
+
+    <footer class="foot">Reads the bookmark responses X sends this browser. Sends X nothing.</footer>
     <script src="popup.js"></script>
   </body>
 </html>

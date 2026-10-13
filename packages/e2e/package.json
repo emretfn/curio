@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "e2e": "node --test src/capture.e2e.ts",
+    "icons": "node src/render-icons.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

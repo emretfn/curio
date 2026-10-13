@@ -154,6 +154,8 @@ const MAKES_REQUESTS: Record<string, string> = {
     "Runs delivery against the fake fetch of testing.ts.",
   "packages/extension/src/background.test.ts":
     "Reads the service worker's source to check what it may reach.",
+  "packages/extension/src/popup.test.ts":
+    "Reads the popup's page, stylesheet and script as text, to show that they load nothing and ask no one but the service worker: the names of request functions and of elements that load, as patterns. It requests nothing.",
   "packages/web/src/components/library/x-media-element.tsx":
     "The exception of X-7: the picture and video elements, which have the owner's browser load a post's media from X's media CDN. Rendered only by media.tsx, after the owner pressed Show media on that post or turned on the on-screen setting; never for an avatar, and never by the server.",
   "packages/web/src/components/library/video-player.tsx":
@@ -179,6 +181,8 @@ const MAKES_REQUESTS: Record<string, string> = {
   "packages/e2e/src/capture.e2e.ts":
     "Starts the app and a Chromium whose resolver sends every hostname to this process, and stops before any test if that rule is not in force.",
   "packages/e2e/src/fake-x.ts": "A server. It answers requests and makes none.",
+  "packages/e2e/src/render-icons.ts":
+    "Renders the icon's PNGs (pnpm icons:build): starts a Chromium that is offline, resolves no hostname and runs no script, hands it the icon's SVG as text and takes pictures of it. Nothing is requested.",
   "packages/e2e/src/shapes-page.js":
     "Runs inside the test browser, where x.com is the fake.",
   "packages/demo/package.json":

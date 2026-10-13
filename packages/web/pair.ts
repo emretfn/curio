@@ -8,7 +8,7 @@ const token = loadOrCreateToken(dataDirectory());
 console.log(
   [
     "",
-    "Pairing token for the x-bookmarks capture extension:",
+    "Pairing token for the Curio capture extension:",
     "",
     `  ${token}`,
     "",
