@@ -27,8 +27,8 @@ export default function PairPage() {
             </li>
             <li>Copy the token it prints.</li>
             <li>
-              In Chrome, open the x-bookmarks capture popup, paste the token and
-              press Pair.
+              In Chrome, open the Curio capture popup, paste the token and press
+              Pair.
             </li>
           </ol>
         </CardContent>

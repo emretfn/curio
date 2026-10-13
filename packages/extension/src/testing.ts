@@ -152,3 +152,13 @@ export function fakeApp(options: { token?: string; squatter?: boolean } = {}) {
         .map(({ body }) => JSON.parse(body).id as string),
   };
 }
+
+/**
+ * The shapes of an SVG drawing, one string each, however they are spaced and
+ * indented: what the mark's copies are compared by.
+ */
+export function shapesOf(markup: string): string[] {
+  return (markup.match(/<(?:rect|path|circle)\b[^>]*>/g) ?? []).map((shape) =>
+    shape.replace(/\s+/g, " ").replace(/ ?\/?>$/, ""),
+  );
+}

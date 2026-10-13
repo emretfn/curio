@@ -8,9 +8,10 @@
  * On a narrow screen the side column is not shown, and the bar leads back
  * to the library, whose filters sheet holds the list of screens.
  */
-import { ArrowLeft, Bookmark } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { CurioMark } from "@/components/curio-mark";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { LibraryStatus } from "@/server/library";
@@ -76,8 +77,8 @@ export function Shell({
         <aside className="sticky top-0 hidden h-dvh flex-col border-e bg-sidebar lg:flex">
           <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 ps-5 pe-3">
             <p className="flex items-center gap-2 font-semibold text-[0.9375rem]">
-              <Bookmark aria-hidden="true" className="size-4" />
-              Bookmarks
+              <CurioMark className="size-[1.125rem]" />
+              Curio
             </p>
             <ThemeSetting compact />
           </div>
