@@ -37,6 +37,10 @@ coverage/
 # Each is checked by its own run of the tools, from its own root.
 /.claude/worktrees/
 
+# Claude Code's settings for one computer: its paths, and what it may run
+# here. Settings a team shares, .claude/settings.json, are the repo's.
+/.claude/settings.local.json
+
 # OS and editor
 .DS_Store
 *.log

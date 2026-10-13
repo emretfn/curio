@@ -16,51 +16,20 @@
  * What this cannot see is said at the bottom of the standard: a URL that
  * arrives as data, a request made inside a dependency, a redirect.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { expect, test } from "vitest";
+import { repoRoot, repoSourceFiles } from "./testing/repo-files.ts";
 import { X_OWNED_DOMAINS } from "./x-hosts.ts";
 
-const repoRoot = join(import.meta.dirname, "../../..");
-
-/** Not source: dependencies, build output, the user's data, prose, lockfiles, and generated files. */
-const SKIPPED_DIRECTORIES = new Set([
-  "node_modules",
-  ".git",
-  "dist",
-  ".next",
-  ".next-e2e",
-  ".next-demo",
-  "data",
-  "demo-data",
-  "coverage",
-  // Research notes cite X's own pages. They are prose, and nothing runs them.
-  "docs",
-  // Redacted responses: data that names X's media hosts, with invented paths.
-  "fixtures",
-]);
-const SKIPPED_FILES = new Set(["pnpm-lock.yaml", "next-env.d.ts"]);
+/**
+ * Which of the repo's files this reads. Which files are the repo's, and
+ * which of them are prose or data and not source, is `repoSourceFiles`: what
+ * git ignores is not read, whatever it holds.
+ */
 const SOURCE_FILE =
   /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|json|html|css|grit|yaml|yml)$/;
 const TEST_FILE = /\.test\.(ts|tsx)$/;
-
-function sourceFiles(directory: string = repoRoot): string[] {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      // A directory with a `.git` of its own is another checkout, such as a
-      // linked worktree. It is not this tree's source: its own run of this
-      // test reads it, under the paths these lists name.
-      return SKIPPED_DIRECTORIES.has(entry.name) ||
-        existsSync(join(path, ".git"))
-        ? []
-        : sourceFiles(path);
-    }
-    return SOURCE_FILE.test(entry.name) && !SKIPPED_FILES.has(entry.name)
-      ? [relative(repoRoot, path)]
-      : [];
-  });
-}
 
 /** One of X's domains or a subdomain of one, standing as a host and not inside a longer name. */
 const X_HOST = new RegExp(
@@ -262,7 +231,7 @@ const REQUESTS_BESIDE_X_HOSTS: Record<string, string> = {
     "An address on a host of X's is handed to the classifier's gate to show that the gate refuses it; the sender behind the gate is a mock, and is checked not to have been called.",
 };
 
-const files = sourceFiles().map((path) => ({
+const files = repoSourceFiles(SOURCE_FILE).map((path) => ({
   path,
   source: readFileSync(join(repoRoot, path), "utf8"),
 }));

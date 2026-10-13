@@ -6,46 +6,21 @@
  * a second way out. It is the mechanical half of the AI rules in
  * CODING_STANDARDS.md.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { repoRoot, repoSourceFiles } from "@curio/core/testing";
 import { expect, test } from "vitest";
 
-const repoRoot = join(import.meta.dirname, "../../..");
-const SKIPPED = new Set([
-  "node_modules",
-  ".git",
-  "dist",
-  ".next",
-  ".next-e2e",
-  ".next-demo",
-  "data",
-  "demo-data",
-  "coverage",
-  "docs",
-  "fixtures",
-]);
-
-function sourceFiles(directory: string = repoRoot): string[] {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      // A directory with a `.git` of its own is another checkout, such as a
-      // linked worktree. Its own run of this test reads it.
-      return SKIPPED.has(entry.name) || existsSync(join(path, ".git"))
-        ? []
-        : sourceFiles(path);
-    }
-    return /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|json)$/.test(entry.name) &&
-      entry.name !== "pnpm-lock.yaml"
-      ? [relative(repoRoot, path)]
-      : [];
-  });
-}
-
-const files = sourceFiles().map((path) => ({
-  path,
-  source: readFileSync(join(repoRoot, path), "utf8"),
-}));
+// The repo's source, as every check that reads it has it: what git would
+// take, without the prose and the fixtures. A file git ignores is not read,
+// whatever it holds: one computer's settings for a tool, a response saved
+// while debugging, what a build wrote.
+const files = repoSourceFiles(/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|json)$/).map(
+  (path) => ({
+    path,
+    source: readFileSync(join(repoRoot, path), "utf8"),
+  }),
+);
 /** Unit tests, the end-to-end test and test helpers. */
 const isTest = (path: string) => /\.(?:test|e2e)\.tsx?$|\/testing\//.test(path);
 
